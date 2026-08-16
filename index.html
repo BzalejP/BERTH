@@ -286,6 +286,18 @@
   }
   .locked-room-row .room-occ{ font-size: 11.5px; color: var(--ink-dim); margin-top: 2px; line-height:1.5; }
 
+  .visitor-row{
+    display:flex; align-items:center; justify-content:space-between; gap: 10px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 4px; padding: 12px 14px;
+  }
+  .visitor-row .visitor-name{ font-family:'Big Shoulders Display', sans-serif; font-size: 16px; color: var(--ink); }
+  .visitor-row .visitor-meta{ font-size: 11.5px; color: var(--ink-dim); margin-top: 2px; font-family:'IBM Plex Mono', monospace; }
+  .visitor-row button{
+    background: none; border: 1px solid var(--border); border-radius: 3px; color: var(--ink-faint);
+    cursor: pointer; font-size: 13px; padding: 4px 9px; flex-shrink: 0;
+  }
+  .visitor-row button:hover{ border-color: var(--port); color: var(--port); }
+
   @media (max-width: 640px){
     .brand-mark{ font-size: 38px; }
     .panel{ padding: 20px; }
@@ -365,8 +377,35 @@
     <div id="warnHolder"></div>
   </div>
 
+  <div class="panel" id="visitorsPanel" style="display:none;">
+    <h2>07 — Crew Visitors</h2>
+    <p class="sub">Add anyone who isn't in the uploaded schedule but still needs a bunk — a rider, a trainee, a family member, whoever. Treated exactly like Hotel Staff Seasonal: no exclusion, no solo-cabin preference, just fit them in.</p>
+    <div class="config-row">
+      <div class="config-field" style="flex:1.4; min-width:200px;">
+        <label for="visitorName">Name</label>
+        <input type="text" id="visitorName" placeholder="Full name">
+      </div>
+      <div class="config-field">
+        <label for="visitorGender">Gender</label>
+        <input type="text" id="visitorGender" placeholder="e.g. Male">
+      </div>
+      <div class="config-field">
+        <label for="visitorStart">Onboard from day</label>
+        <input type="number" id="visitorStart" min="1" max="31">
+      </div>
+      <div class="config-field">
+        <label for="visitorEnd">Onboard to day</label>
+        <input type="number" id="visitorEnd" min="1" max="31">
+      </div>
+    </div>
+    <div style="margin-top:14px;">
+      <button class="btn secondary" id="addVisitorBtn">Add Crew Visitor</button>
+    </div>
+    <div id="visitorsList" class="locked-rooms-list" style="margin-top:16px;"></div>
+  </div>
+
   <div class="panel" id="prefsPanel" style="display:none;">
-    <h2>07 — Room Preferences</h2>
+    <h2>08 — Room Preferences</h2>
     <p class="sub">Optional. Request a specific room for anyone — the algorithm tries to honor it first, and only falls back to its own pick if that room isn't free or would mix genders.</p>
     <div id="prefsList" class="prefs-list"></div>
     <div style="margin-top:22px;">
@@ -375,7 +414,7 @@
   </div>
 
   <div class="panel" id="resultsPanel" style="display:none;">
-    <h2>08 — Room Assignments</h2>
+    <h2>09 — Room Assignments</h2>
     <p class="sub">Each block spans a stretch in one room — most people get one block for their whole stint, but a stint may be split across rooms if that was the only way to guarantee everyone a bed (flagged below when it happens). Port-red and starboard-green mark the two declared genders. Drag a name in the room list below into another room to move them — their sign-on and sign-off days stay exactly as scheduled.</p>
     <div class="manifest-scroll">
       <table class="manifest" id="manifestTable"></table>
@@ -443,7 +482,9 @@
     rosterMeta: { count: 0, fileName: '' },
     unresolvedCrewNumbers: [],
     people: [],       // {name, position, gender, dayStatus: {day: status}}
-    stays: [],         // eligible stays: {name, gender, position, isBasic, start, end}
+    stays: [],         // merged: fileStays + crew-visitor stays
+    fileStays: [],     // eligible stays parsed from the uploaded schedule only
+    crewVisitors: [],  // manually added: {id, name, gender, start, end}
     unknownGenderNames: [],
     excludedCount: 0,
     dayNumbers: [],
@@ -486,6 +527,13 @@
     prefsList: document.getElementById('prefsList'),
     lockedRoomsPanel: document.getElementById('lockedRoomsPanel'),
     lockedRoomsList: document.getElementById('lockedRoomsList'),
+    visitorsPanel: document.getElementById('visitorsPanel'),
+    visitorName: document.getElementById('visitorName'),
+    visitorGender: document.getElementById('visitorGender'),
+    visitorStart: document.getElementById('visitorStart'),
+    visitorEnd: document.getElementById('visitorEnd'),
+    addVisitorBtn: document.getElementById('addVisitorBtn'),
+    visitorsList: document.getElementById('visitorsList'),
     generateBtn: document.getElementById('generateBtn'),
     resultsPanel: document.getElementById('resultsPanel'),
     manifestTable: document.getElementById('manifestTable'),
@@ -935,11 +983,32 @@
       });
     });
 
-    state.stays = stays;
+    state.fileStays = stays;
     state.excludedCount = excludedCount;
     state.unknownGenderNames = unknownGenderNames;
     state.unrecognizedSymbols = unrecognizedSymbols;
     state.unresolvedCrewNumbers = unresolvedCrewNumbers;
+
+    rebuildStaysAndRefresh();
+  }
+
+  // Crew Visitors are manually added, not parsed from any file — kept
+  // separate from state.fileStays so they survive untouched across a
+  // re-upload or a room-numbers/beds-per-room change, and merged back in
+  // here every time either side changes.
+  function getCrewVisitorStays(){
+    return state.crewVisitors.map(v => ({
+      name: v.name, gender: v.gender, position: 'Crew Visitor', isBasic: false,
+      start: v.start, end: v.end
+    }));
+  }
+
+  function rebuildStaysAndRefresh(){
+    const stays = (state.fileStays || []).concat(getCrewVisitorStays());
+    state.stays = stays;
+    const dayNumbers = state.dayNumbers;
+    const roomIds = state.roomIds;
+    const bedsPerRoom = state.bedsPerRoom;
 
     // Capacity check
     const totalBeds = roomIds.length * bedsPerRoom;
@@ -962,7 +1031,8 @@
       renderPreview();
       renderPrefsPanel();
       renderLockedRoomsPanel();
-    } catch (err) {
+      renderVisitorsPanel();
+    } catch (err){
       console.error('Error while rendering parsed schedule:', err);
       alert('Something went wrong while displaying the parsed schedule: ' + err.message + '\n\nCheck the browser console for details.');
     }
@@ -1120,6 +1190,67 @@
       });
     });
   }
+
+  // ---------------------------------------------------------------------
+  // Crew Visitors — manually added people who never came from a file.
+  // Treated identically to Hotel Staff Seasonal: not excluded, no solo-
+  // cabin preference, just another stay for the algorithm to place.
+  // ---------------------------------------------------------------------
+  function renderVisitorsPanel(){
+    if (!state.dayNumbers.length){
+      els.visitorsPanel.style.display = 'none';
+      return;
+    }
+    els.visitorsPanel.style.display = 'block';
+    els.visitorStart.min = state.dayNumbers[0];
+    els.visitorStart.max = state.dayNumbers[state.dayNumbers.length - 1];
+    els.visitorEnd.min = state.dayNumbers[0];
+    els.visitorEnd.max = state.dayNumbers[state.dayNumbers.length - 1];
+
+    if (state.crewVisitors.length === 0){
+      els.visitorsList.innerHTML = `<p style="color:var(--ink-faint); font-size:13px; grid-column:1/-1;">No crew visitors added yet.</p>`;
+      return;
+    }
+    els.visitorsList.innerHTML = state.crewVisitors.map(v => `
+      <div class="visitor-row">
+        <span>
+          <div class="visitor-name">${v.name}</div>
+          <div class="visitor-meta">${v.gender} · day ${v.start}–${v.end}</div>
+        </span>
+        <button data-visitor-id="${v.id}" title="Remove">✕</button>
+      </div>
+    `).join('');
+    els.visitorsList.querySelectorAll('button[data-visitor-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.visitorId;
+        state.crewVisitors = state.crewVisitors.filter(v => v.id !== id);
+        rebuildStaysAndRefresh();
+      });
+    });
+  }
+
+  els.addVisitorBtn.addEventListener('click', () => {
+    const name = els.visitorName.value.trim();
+    const gender = els.visitorGender.value.trim();
+    const start = parseInt(els.visitorStart.value, 10);
+    const end = parseInt(els.visitorEnd.value, 10);
+    const dayMin = state.dayNumbers[0], dayMax = state.dayNumbers[state.dayNumbers.length - 1];
+
+    if (!name){ alert('Enter a name for the crew visitor.'); return; }
+    if (!gender){ alert('Enter a declared gender for the crew visitor — a room can\'t be safely picked without it.'); return; }
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < dayMin || end > dayMax || start > end){
+      alert(`Enter a valid onboard range within day ${dayMin}–${dayMax}, with the start day on or before the end day.`);
+      return;
+    }
+
+    state.crewVisitors.push({ id: 'v' + Date.now() + Math.random().toString(36).slice(2, 7), name, gender, start, end });
+    els.visitorName.value = '';
+    els.visitorGender.value = '';
+    els.visitorStart.value = '';
+    els.visitorEnd.value = '';
+
+    rebuildStaysAndRefresh();
+  });
 
   // ---------------------------------------------------------------------
   // Room assignment algorithm
