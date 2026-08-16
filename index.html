@@ -1,0 +1,2298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BERTH — Crew Room Assignment</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<style>
+  :root{
+    --bg: #0A0E13;
+    --panel: #121821;
+    --panel2: #161D27;
+    --border: #232B36;
+    --ink: #E9E7DE;
+    --ink-dim: #8B95A1;
+    --ink-faint: #545F6C;
+    --brass: #C99A3F;
+    --brass-dim: #8A6B2E;
+    --port: #C4483C;
+    --starboard: #3E8F63;
+    --neutral-gender: #6B7FA6;
+    --danger: #C4483C;
+  }
+  *{ box-sizing: border-box; }
+  body{
+    margin:0;
+    background:
+      radial-gradient(ellipse 900px 500px at 15% -10%, rgba(201,154,63,0.08), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 100% 10%, rgba(62,143,99,0.06), transparent 55%),
+      var(--bg);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', sans-serif;
+    min-height: 100vh;
+    padding: 0 0 80px;
+  }
+  .wrap{ max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---- Header ---- */
+  header{
+    padding: 48px 0 36px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 40px;
+  }
+  .brand-row{ display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+  .brand-mark{
+    font-family:'Big Shoulders Display', sans-serif;
+    font-weight: 800;
+    font-size: 52px;
+    letter-spacing: 0.02em;
+    color: var(--ink);
+    line-height: 1;
+  }
+  .brand-mark .dot{ color: var(--brass); }
+  .brand-sub{
+    font-family:'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .tagline{ color: var(--ink-dim); font-size: 15px; margin-top: 10px; max-width: 640px; line-height:1.6; }
+
+  /* ---- Panels ---- */
+  .panel{
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 28px;
+    margin-bottom: 24px;
+  }
+  .panel h2{
+    font-family:'Big Shoulders Display', sans-serif;
+    font-weight: 700;
+    font-size: 22px;
+    letter-spacing: 0.03em;
+    margin: 0 0 6px;
+    color: var(--ink);
+    text-transform: uppercase;
+  }
+  .panel .sub{ color: var(--ink-dim); font-size: 13.5px; margin: 0 0 20px; line-height:1.6; }
+
+  /* ---- Upload zone ---- */
+  .upload-zone{
+    border: 1px dashed var(--border);
+    border-radius: 4px;
+    padding: 40px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    position: relative;
+  }
+  .upload-zone:hover, .upload-zone.drag{
+    border-color: var(--brass-dim);
+    background: rgba(201,154,63,0.04);
+  }
+  .upload-zone input{ display:none; }
+  .upload-icon{
+    width: 36px; height: 36px; margin: 0 auto 14px;
+    border: 1px solid var(--ink-faint); border-radius: 3px;
+    display:flex; align-items:center; justify-content:center;
+    color: var(--ink-dim); font-size: 18px;
+  }
+  .upload-label{ font-size: 14.5px; color: var(--ink); font-weight: 500; }
+  .upload-hint{ font-size: 12px; color: var(--ink-faint); margin-top: 6px; font-family:'IBM Plex Mono', monospace; }
+  .file-chip{
+    display:inline-flex; align-items:center; gap:10px;
+    background: var(--panel2); border:1px solid var(--border); border-radius:4px;
+    padding: 8px 14px; font-size: 13px; font-family:'IBM Plex Mono', monospace; color: var(--ink);
+    margin-top: 14px;
+  }
+  .file-chip button{
+    background:none; border:none; color: var(--ink-faint); cursor:pointer; font-size:14px; padding:0;
+  }
+  .file-chip button:hover{ color: var(--danger); }
+
+  /* ---- Config row ---- */
+  .config-row{ display:flex; gap: 24px; flex-wrap: wrap; margin-bottom: 4px; }
+  .config-field{ min-width: 160px; }
+  .config-field label{
+    display:block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--ink-dim); margin-bottom: 8px; font-family:'IBM Plex Mono', monospace;
+  }
+  .config-field input{
+    width: 100%; background: var(--panel2); border: 1px solid var(--border); border-radius: 3px;
+    color: var(--ink); font-family:'IBM Plex Mono', monospace; font-size: 15px; padding: 9px 12px;
+  }
+  .config-field input:focus{ outline: none; border-color: var(--brass-dim); }
+
+  /* ---- Rules readout ---- */
+  .rules-list{ display:flex; flex-direction:column; gap: 10px; }
+  .rule-item{
+    display:flex; gap: 12px; align-items:flex-start;
+    font-size: 13.5px; color: var(--ink-dim); line-height: 1.5;
+  }
+  .rule-item .n{
+    font-family:'IBM Plex Mono', monospace; font-size: 11px; color: var(--brass);
+    border: 1px solid var(--brass-dim); border-radius: 2px; padding: 1px 6px; flex-shrink:0; margin-top: 1px;
+  }
+  .rule-item b{ color: var(--ink); font-weight: 600; }
+
+  /* ---- Buttons ---- */
+  .btn{
+    font-family:'IBM Plex Sans', sans-serif; font-weight: 600; font-size: 14px;
+    padding: 13px 26px; border-radius: 3px; border: 1px solid var(--brass-dim);
+    background: var(--brass); color: #14100A; cursor: pointer; transition: filter 0.15s ease;
+  }
+  .btn:hover{ filter: brightness(1.08); }
+  .btn:disabled{ opacity: 0.4; cursor: not-allowed; }
+  .btn.secondary{
+    background: none; color: var(--ink); border-color: var(--border);
+  }
+  .btn.secondary:hover{ border-color: var(--ink-faint); filter:none; }
+
+  /* ---- Preview / stat grid ---- */
+  .stat-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 14px; margin-top: 6px; }
+  .stat-box{
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 4px; padding: 16px;
+  }
+  .stat-box .num{ font-family:'Big Shoulders Display', sans-serif; font-size: 34px; font-weight: 700; color: var(--ink); line-height:1; }
+  .stat-box .lbl{ font-size: 11px; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px; font-family:'IBM Plex Mono', monospace; }
+  .stat-box.warn .num{ color: var(--brass); }
+  .stat-box.danger .num{ color: var(--danger); }
+
+  .warn-block{
+    border-left: 2px solid var(--brass); background: rgba(201,154,63,0.06);
+    padding: 12px 16px; border-radius: 0 3px 3px 0; margin-top: 14px; font-size: 13px; color: var(--ink-dim); line-height:1.6;
+  }
+  .warn-block b{ color: var(--brass); }
+  .warn-block ul{ margin: 6px 0 0; padding-left: 18px; }
+  .danger-block{
+    border-left: 2px solid var(--danger); background: rgba(196,72,60,0.07);
+    padding: 12px 16px; border-radius: 0 3px 3px 0; margin-top: 14px; font-size: 13px; color: var(--ink-dim); line-height:1.6;
+  }
+  .danger-block b{ color: var(--danger); }
+  .danger-block ul{ margin: 6px 0 0; padding-left: 18px; }
+
+  /* ---- Manifest grid (signature element) ---- */
+  .manifest-scroll{ overflow-x: auto; border: 1px solid var(--border); border-radius: 4px; }
+  .manifest{ border-collapse: collapse; font-family:'IBM Plex Mono', monospace; font-size: 11px; min-width: 100%; }
+  .manifest th, .manifest td{ border: 1px solid var(--border); padding: 0; }
+  .manifest thead th{
+    background: var(--panel2); color: var(--ink-dim); font-weight: 500; text-align: center;
+    padding: 6px 4px; font-size: 10.5px; position: sticky; top: 0; z-index: 2;
+  }
+  .manifest thead th.day-head-weekend{ color: var(--brass); }
+  .room-label-cell{
+    background: var(--panel2); color: var(--ink); font-weight: 600; text-align:left;
+    padding: 8px 12px; white-space: nowrap; position: sticky; left: 0; z-index: 1;
+    font-family:'Big Shoulders Display', sans-serif; font-size: 15px; letter-spacing: 0.02em;
+  }
+  .bed-row td.daycell{ height: 22px; width: 22px; position: relative; }
+  .occ-block{
+    position:absolute; top:1px; bottom:1px; left:0; right:0;
+    display:flex; align-items:center; justify-content:center;
+    font-size: 9px; color: #0A0E13; font-weight: 600; overflow: hidden; cursor: default;
+  }
+  .occ-port{ background: var(--port); }
+  .occ-starboard{ background: var(--starboard); }
+  .occ-neutral{ background: var(--neutral-gender); }
+  .occ-block.solo{ opacity: 0.85; }
+  .empty-cell{ background: repeating-linear-gradient(135deg, transparent, transparent 3px, rgba(255,255,255,0.02) 3px, rgba(255,255,255,0.02) 6px); }
+
+  .legend{ display:flex; gap: 18px; flex-wrap: wrap; margin-top: 16px; font-size: 12px; color: var(--ink-dim); }
+  .legend span{ display:inline-flex; align-items:center; gap: 7px; }
+  .legend i{ width: 12px; height: 12px; border-radius: 2px; display:inline-block; }
+
+  /* ---- Room cards ---- */
+  .room-cards{ display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-top: 20px; }
+  .room-card{ background: var(--panel2); border: 1px solid var(--border); border-radius: 4px; padding: 16px; }
+  .room-card .room-title{
+    font-family:'Big Shoulders Display', sans-serif; font-size: 20px; font-weight: 700;
+    color: var(--ink); margin-bottom: 10px; display:flex; justify-content:space-between; align-items:center;
+  }
+  .room-card .room-title .solo-tag{
+    font-family:'IBM Plex Mono', monospace; font-size: 9.5px; color: var(--brass);
+    border: 1px solid var(--brass-dim); border-radius: 2px; padding: 2px 6px; text-transform: uppercase;
+  }
+  .occupant-line{
+    display:flex; align-items:center; justify-content:space-between; gap: 10px; font-size: 13px; padding: 6px 0;
+    border-top: 1px solid var(--border);
+  }
+  .occupant-line:first-of-type{ border-top: none; }
+  .occupant-line .who{ color: var(--ink); flex:1; }
+  .occupant-line .who .pos{ color: var(--ink-faint); font-size: 11px; display:block; }
+  .occupant-line .when{ color: var(--ink-dim); font-family:'IBM Plex Mono', monospace; font-size: 11.5px; white-space:nowrap; }
+  .occupant-line.empty{ color: var(--ink-faint); font-style: italic; }
+  .occupant-line[data-draggable]{ cursor: grab; touch-action: none; }
+  .occupant-line[data-draggable]:active{ cursor: grabbing; }
+  .drag-handle{ color: var(--ink-faint); font-size: 13px; flex-shrink:0; line-height:1; }
+  .room-card{ transition: border-color 0.1s ease, box-shadow 0.1s ease; }
+  .room-card.drop-target-valid{ border-color: var(--starboard); box-shadow: 0 0 0 2px rgba(62,143,99,0.35); }
+  .room-card.drop-target-invalid{ border-color: var(--port); box-shadow: 0 0 0 2px rgba(196,72,60,0.3); }
+  .drag-ghost{
+    position: fixed; z-index: 999; pointer-events: none;
+    background: var(--panel2); border: 1px solid var(--brass-dim); border-radius: 4px;
+    padding: 8px 12px; font-size: 12.5px; color: var(--ink); font-family:'IBM Plex Sans', sans-serif;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.5); transform: translate(-8px, -50%);
+  }
+  .drag-message{
+    text-align:center; font-size: 12.5px; color: var(--ink-dim); margin-top: 12px;
+    min-height: 18px; font-family:'IBM Plex Mono', monospace;
+  }
+  .drag-message.error{ color: var(--port); }
+  .drag-message.success{ color: var(--starboard); }
+
+  .empty-state{ text-align:center; padding: 40px 20px; color: var(--ink-faint); font-size: 13.5px; }
+
+  .checkpoint-block{ margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--border); }
+
+  .export-block{ margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--border); }
+  .history-info{ font-size: 12px; color: var(--ink-dim); font-family:'IBM Plex Mono', monospace; }
+  .export-caption{ font-size: 12px; color: var(--ink-faint); margin: 12px 0 0; line-height: 1.6; }
+
+  .prefs-list{ display:flex; flex-direction:column; gap: 8px; max-height: 420px; overflow-y: auto; padding-right: 4px; }
+  .pref-row{
+    display:flex; align-items:center; justify-content:space-between; gap: 14px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 3px; padding: 10px 14px;
+  }
+  .pref-row .who{ font-size: 13.5px; color: var(--ink); }
+  .pref-row .who .pos{ color: var(--ink-faint); font-size: 11px; display:block; margin-top: 1px; }
+  .pref-row select{
+    background: var(--panel); border: 1px solid var(--border); border-radius: 3px;
+    color: var(--ink); font-family:'IBM Plex Mono', monospace; font-size: 12.5px; padding: 7px 10px;
+    min-width: 150px;
+  }
+  .pref-row select:focus{ outline: none; border-color: var(--brass-dim); }
+
+  .locked-rooms-list{
+    display:grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px;
+  }
+  .locked-room-row{
+    display:flex; align-items:flex-start; gap: 10px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 4px;
+    padding: 12px 14px; cursor: pointer; transition: border-color 0.15s ease;
+  }
+  .locked-room-row:hover{ border-color: var(--ink-faint); }
+  .locked-room-row.is-locked{ border-color: var(--brass-dim); background: rgba(201,154,63,0.06); }
+  .locked-room-row input[type="checkbox"]{
+    margin-top: 3px; accent-color: var(--brass); width: 15px; height: 15px; flex-shrink:0; cursor: pointer;
+  }
+  .locked-room-row .room-name{
+    font-family:'Big Shoulders Display', sans-serif; font-size: 17px; letter-spacing: 0.02em; color: var(--ink);
+  }
+  .locked-room-row .room-occ{ font-size: 11.5px; color: var(--ink-dim); margin-top: 2px; line-height:1.5; }
+
+  @media (max-width: 640px){
+    .brand-mark{ font-size: 38px; }
+    .panel{ padding: 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand-row">
+      <div class="brand-mark">BERTH<span class="dot">.</span></div>
+      <div class="brand-sub">Crew Room Assignment</div>
+    </div>
+    <p class="tagline">Import a monthly crew schedule and a crew roster — get every cabin filled, correctly, for the whole rotation, in one pass.</p>
+  </header>
+
+  <div class="panel">
+    <h2>01 — Crew Roster</h2>
+    <p class="sub">Name, crew number, and declared gender for everyone — upload once, it's remembered on this device for every future schedule you import. Re-upload any time crew changes.</p>
+    <div class="upload-zone" id="rosterDropZone">
+      <input type="file" id="rosterFileInput" accept=".xlsx,.xls">
+      <div class="upload-icon">⇪</div>
+      <div class="upload-label">Drop the crew roster here, or click to browse</div>
+      <div class="upload-hint">.xlsx / .xls — columns: Name, Crew Number, Gender</div>
+      <div id="rosterChipHolder"></div>
+    </div>
+    <div id="rosterSummary"></div>
+  </div>
+
+  <div class="panel">
+    <h2>02 — Import Schedule</h2>
+    <p class="sub">The monthly schedule itself — crew number, position, and day-by-day status. No names needed here; names come from the Crew Roster above.</p>
+    <div class="upload-zone" id="dropZone">
+      <input type="file" id="fileInput" accept=".xlsx,.xls">
+      <div class="upload-icon">⇪</div>
+      <div class="upload-label">Drop the schedule here, or click to browse</div>
+      <div class="upload-hint">.xlsx / .xls — crew number, position, day columns 1–31</div>
+      <div id="fileChipHolder"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="configPanel" style="display:none;">
+    <h2>03 — Cabin Capacity</h2>
+    <p class="sub">Adjust if your ship's rooming setup differs from the default.</p>
+    <div class="config-row">
+      <div class="config-field" style="flex:1; min-width:280px;">
+        <label for="roomNumbers">Room numbers</label>
+        <input type="text" id="roomNumbers" value="7016, 7112, 7113, 7114, 7115, 7116, 7610, 7613, 2604, 2605, 2702">
+      </div>
+      <div class="config-field">
+        <label for="bedsPerRoom">Beds per room</label>
+        <input type="number" id="bedsPerRoom" value="2" min="1" max="4">
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="lockedRoomsPanel" style="display:none;">
+    <h2>04 — Locked Rooms</h2>
+    <p class="sub">Lock a room to keep its crew exactly as-is the next time you generate a plan. Already have a plan? Locking freezes what's currently there. Haven't generated yet? Pin specific people to that room in Room Preferences below first — locking will seed the room with them before anyone else is placed.</p>
+    <div id="lockedRoomsList" class="locked-rooms-list"></div>
+  </div>
+
+  <div class="panel" id="rulesPanel" style="display:none;">
+    <h2>05 — Assignment Rules</h2>
+    <div class="rules-list">
+      <div class="rule-item"><span class="n">01</span><span><b>Excluded from rooming:</b> Restaurant &amp; Bar Supervisor, Sales &amp; Service Manager, Onboard Hotel Manager — these positions are left out of the pool entirely.</span></div>
+      <div class="rule-item"><span class="n">02</span><span><b>Everyone gets a bed, no exceptions:</b> the top priority, above all else. If every other option runs out, the algorithm will pair Basic staff together, pair Basic with Seasonal, or even split one person's stint across more than one room mid-turn — always flagged clearly when it happens.</span></div>
+      <div class="rule-item"><span class="n">03</span><span><b>No mixed-gender rooms:</b> a cabin never holds overlapping occupants of different declared genders — this is the one rule that's never relaxed, even as a last resort.</span></div>
+      <div class="rule-item"><span class="n">04</span><span><b>Otherwise, minimize disruption:</b> Hotel Staff Basic get a solo room when there's spare capacity, and everyone keeps one room for their whole stint whenever possible — these are strong preferences, just not stronger than rule 02.</span></div>
+    </div>
+  </div>
+
+  <div class="panel" id="previewPanel" style="display:none;">
+    <h2>06 — Parsed Roster</h2>
+    <p class="sub" id="previewSub"></p>
+    <div class="stat-grid" id="statGrid"></div>
+    <div id="warnHolder"></div>
+  </div>
+
+  <div class="panel" id="prefsPanel" style="display:none;">
+    <h2>07 — Room Preferences</h2>
+    <p class="sub">Optional. Request a specific room for anyone — the algorithm tries to honor it first, and only falls back to its own pick if that room isn't free or would mix genders.</p>
+    <div id="prefsList" class="prefs-list"></div>
+    <div style="margin-top:22px;">
+      <button class="btn" id="generateBtn">Assign Rooms</button>
+    </div>
+  </div>
+
+  <div class="panel" id="resultsPanel" style="display:none;">
+    <h2>08 — Room Assignments</h2>
+    <p class="sub">Each block spans a stretch in one room — most people get one block for their whole stint, but a stint may be split across rooms if that was the only way to guarantee everyone a bed (flagged below when it happens). Port-red and starboard-green mark the two declared genders. Drag a name in the room list below into another room to move them — their sign-on and sign-off days stay exactly as scheduled.</p>
+    <div class="manifest-scroll">
+      <table class="manifest" id="manifestTable"></table>
+    </div>
+    <div class="legend" id="legendHolder"></div>
+    <div class="room-cards" id="roomCards"></div>
+    <div class="drag-message" id="dragMessage"></div>
+
+    <div class="checkpoint-block">
+      <h2 style="margin-bottom:6px;">CORRECT REALITY & REPLAN</h2>
+      <p class="sub">If the actual cabin lineup on a given day doesn't match the plan — someone was moved, a mistake was made — set the real state for that day here. Everything before that day stays untouched; everything from that day on gets replanned around your correction.</p>
+      <div class="config-row">
+        <div class="config-field">
+          <label for="checkpointDay">Correct the plan as of day</label>
+          <input type="number" id="checkpointDay" min="1" max="31" value="1">
+        </div>
+        <div class="config-field" style="align-self:flex-end;">
+          <button class="btn secondary" id="loadCheckpointBtn">Load this day for editing</button>
+        </div>
+      </div>
+      <div id="checkpointEditorWrap" style="display:none; margin-top:18px;">
+        <p class="sub" style="margin-bottom:10px;">Drag names between rooms to match the real state on day <span id="checkpointDayLabel"></span>. This does not change anyone's sign-on/sign-off day.</p>
+        <div class="room-cards" id="checkpointCards"></div>
+        <div class="drag-message" id="checkpointDragMessage"></div>
+        <div style="margin-top:16px; display:flex; gap:12px; flex-wrap:wrap;">
+          <button class="btn" id="applyCheckpointBtn">Apply &amp; replan from day <span id="checkpointDayLabel2"></span></button>
+          <button class="btn secondary" id="cancelCheckpointBtn">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <div class="export-block">
+      <h2 style="margin-bottom:6px;">CABIN PLAN EXPORT</h2>
+      <p class="sub">Matches your ship's cabin plan format. One download captures every distinct roommate lineup across the month as its own dated sheet — nobody has to click through day by day.</p>
+      <div class="config-row">
+        <div class="config-field" style="flex:1; min-width:220px;">
+          <label for="planTitle">Plan title</label>
+          <input type="text" id="planTitle" value="Cabine Plan F &amp; B">
+        </div>
+        <div class="config-field">
+          <label for="scheduleStartDate">Calendar date for day 1</label>
+          <input type="date" id="scheduleStartDate">
+        </div>
+      </div>
+      <div style="margin-top:14px; display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+        <button class="btn secondary" id="exportBtn">Download Cabin Plan (.xlsx)</button>
+        <span id="historyInfo" class="history-info"></span>
+        <button class="btn secondary" id="clearHistoryBtn" style="margin-left:auto;">Clear saved history</button>
+      </div>
+      <p class="export-caption" id="permutationPreview"></p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  const EXCLUDED_POSITIONS = ['restaurant & bar supervisor', 'sales & service manager', 'onboard hotel manager'];
+  const BASIC_POSITION = 'hotel staff basic';
+
+  const state = {
+    workbook: null,
+    fileName: '',
+    roster: { byNumber: {}, byName: {} }, // crewNumber -> {name,gender}; normalizedName -> gender
+    rosterMeta: { count: 0, fileName: '' },
+    unresolvedCrewNumbers: [],
+    people: [],       // {name, position, gender, dayStatus: {day: status}}
+    stays: [],         // eligible stays: {name, gender, position, isBasic, start, end}
+    unknownGenderNames: [],
+    excludedCount: 0,
+    dayNumbers: [],
+    monthRange: null,
+    overflowDays: [],
+    unassigned: [],
+    rooms: [],          // after assignment: [{id, beds:[[bookings],[bookings]]}]
+    genderColorMap: {},
+    preferences: {},    // name -> preferred room id (string) or undefined
+    lockedRooms: new Set(), // room ids to preserve exactly as-is on next generate
+    lockSeedWarnings: [],
+    unhonoredPrefs: [],
+    basicSoloFallbacks: [],
+    capacityConsolidations: [],
+    midTurnMoves: [],
+    displacements: [],
+    soloSwaps: [],
+    checkpointDay: null,
+    checkpointSnapshot: [],   // [{roomId, bedIdx, name, position, gender, isBasic}] for occupied slots on that day
+    checkpointOverrides: {},  // name -> desired roomId for the checkpoint day onward
+  };
+
+  const els = {
+    dropZone: document.getElementById('dropZone'),
+    fileInput: document.getElementById('fileInput'),
+    fileChipHolder: document.getElementById('fileChipHolder'),
+    rosterDropZone: document.getElementById('rosterDropZone'),
+    rosterFileInput: document.getElementById('rosterFileInput'),
+    rosterChipHolder: document.getElementById('rosterChipHolder'),
+    rosterSummary: document.getElementById('rosterSummary'),
+    configPanel: document.getElementById('configPanel'),
+    rulesPanel: document.getElementById('rulesPanel'),
+    roomNumbers: document.getElementById('roomNumbers'),
+    bedsPerRoom: document.getElementById('bedsPerRoom'),
+    previewPanel: document.getElementById('previewPanel'),
+    previewSub: document.getElementById('previewSub'),
+    statGrid: document.getElementById('statGrid'),
+    warnHolder: document.getElementById('warnHolder'),
+    prefsPanel: document.getElementById('prefsPanel'),
+    prefsList: document.getElementById('prefsList'),
+    lockedRoomsPanel: document.getElementById('lockedRoomsPanel'),
+    lockedRoomsList: document.getElementById('lockedRoomsList'),
+    generateBtn: document.getElementById('generateBtn'),
+    resultsPanel: document.getElementById('resultsPanel'),
+    manifestTable: document.getElementById('manifestTable'),
+    legendHolder: document.getElementById('legendHolder'),
+    roomCards: document.getElementById('roomCards'),
+    dragMessage: document.getElementById('dragMessage'),
+    checkpointDay: document.getElementById('checkpointDay'),
+    loadCheckpointBtn: document.getElementById('loadCheckpointBtn'),
+    checkpointEditorWrap: document.getElementById('checkpointEditorWrap'),
+    checkpointDayLabel: document.getElementById('checkpointDayLabel'),
+    checkpointDayLabel2: document.getElementById('checkpointDayLabel2'),
+    checkpointCards: document.getElementById('checkpointCards'),
+    checkpointDragMessage: document.getElementById('checkpointDragMessage'),
+    applyCheckpointBtn: document.getElementById('applyCheckpointBtn'),
+    cancelCheckpointBtn: document.getElementById('cancelCheckpointBtn'),
+    exportBtn: document.getElementById('exportBtn'),
+    planTitle: document.getElementById('planTitle'),
+    scheduleStartDate: document.getElementById('scheduleStartDate'),
+    historyInfo: document.getElementById('historyInfo'),
+    clearHistoryBtn: document.getElementById('clearHistoryBtn'),
+    permutationPreview: document.getElementById('permutationPreview'),
+  };
+
+  // ---------------------------------------------------------------------
+  // File handling
+  // ---------------------------------------------------------------------
+  els.dropZone.addEventListener('click', () => els.fileInput.click());
+  els.dropZone.addEventListener('dragover', e => { e.preventDefault(); els.dropZone.classList.add('drag'); });
+  els.dropZone.addEventListener('dragleave', () => els.dropZone.classList.remove('drag'));
+  els.dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    els.dropZone.classList.remove('drag');
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  });
+  els.fileInput.addEventListener('change', e => {
+    if (e.target.files.length) handleFile(e.target.files[0]);
+  });
+
+  function handleFile(file){
+    state.fileName = file.name;
+    const reader = new FileReader();
+    reader.onload = evt => {
+      try {
+        const data = new Uint8Array(evt.target.result);
+        state.workbook = XLSX.read(data, { type: 'array' });
+        renderFileChip();
+        els.configPanel.style.display = 'block';
+        els.rulesPanel.style.display = 'block';
+        parseWorkbook();
+      } catch (err) {
+        alert('Could not read that file: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function renderFileChip(){
+    els.fileChipHolder.innerHTML = `
+      <div class="file-chip">
+        📄 ${state.fileName}
+        <button id="clearFileBtn" title="Remove">✕</button>
+      </div>`;
+    document.getElementById('clearFileBtn').addEventListener('click', e => {
+      e.stopPropagation();
+      state.workbook = null;
+      els.fileChipHolder.innerHTML = '';
+      els.previewPanel.style.display = 'none';
+      els.resultsPanel.style.display = 'none';
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Crew Roster — a separate, persisted file (Name / Crew Number / Gender).
+  // Saved to this browser's storage so it doesn't need re-uploading every
+  // time a new monthly schedule comes in. The schedule sheet itself is now
+  // expected to reference crew by number, not name — names are resolved
+  // from this roster at parse time so the rest of the app (and every
+  // generated plan) still works entirely in terms of names.
+  // ---------------------------------------------------------------------
+  const ROSTER_KEY = 'berth_crew_roster_v1';
+
+  function saveRosterToStorage(){
+    try {
+      localStorage.setItem(ROSTER_KEY, JSON.stringify({
+        byNumber: state.roster.byNumber, byName: state.roster.byName, meta: state.rosterMeta
+      }));
+    } catch (err) { console.error('Could not save crew roster', err); }
+  }
+
+  function loadRosterFromStorage(){
+    try {
+      const raw = localStorage.getItem(ROSTER_KEY);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      state.roster.byNumber = parsed.byNumber || {};
+      state.roster.byName = parsed.byName || {};
+      state.rosterMeta = parsed.meta || { count: Object.keys(state.roster.byNumber).length, fileName: '' };
+      return true;
+    } catch (err) { console.error('Could not read saved crew roster', err); return false; }
+  }
+
+  function parseRosterSheet(sheet){
+    const rows = sheetToRows(sheet);
+    const header = rows[0] || [];
+    let nameCol = -1, numCol = -1, genderCol = -1;
+    header.forEach((cell, col) => {
+      const txt = String(cell).trim();
+      if (nameCol === -1 && /name/i.test(txt)) nameCol = col;
+      if (numCol === -1 && /crew\s*(no\.?|number|#|id)|badge/i.test(txt)) numCol = col;
+      if (genderCol === -1 && /gender|sex/i.test(txt)) genderCol = col;
+    });
+    if (nameCol === -1) nameCol = 0;
+    if (numCol === -1) numCol = 1;
+    if (genderCol === -1) genderCol = 2;
+
+    const byNumber = {}, byName = {};
+    let count = 0;
+    for (let r = 1; r < rows.length; r++){
+      const row = rows[r];
+      const name = String(row[nameCol] || '').trim();
+      const crewNumber = String(row[numCol] || '').trim();
+      const gender = String(row[genderCol] || '').trim();
+      if (!name && !crewNumber) continue;
+      if (crewNumber) byNumber[crewNumber] = { name, gender };
+      if (name && gender) byName[normalizeName(name)] = gender;
+      count++;
+    }
+    return { byNumber, byName, count };
+  }
+
+  function renderRosterSummary(){
+    const has = state.rosterMeta && state.rosterMeta.count > 0;
+    if (!has){ els.rosterSummary.innerHTML = ''; return; }
+    els.rosterSummary.innerHTML = `
+      <div class="file-chip" style="margin-top:14px;">
+        👥 ${state.rosterMeta.count} crew member${state.rosterMeta.count === 1 ? '' : 's'} saved on this device${state.rosterMeta.fileName ? ' — from ' + state.rosterMeta.fileName : ''}
+        <button id="clearRosterBtn" title="Remove">✕</button>
+      </div>`;
+    document.getElementById('clearRosterBtn').addEventListener('click', e => {
+      e.stopPropagation();
+      state.roster = { byNumber: {}, byName: {} };
+      state.rosterMeta = { count: 0, fileName: '' };
+      try { localStorage.removeItem(ROSTER_KEY); } catch (err) { console.error(err); }
+      renderRosterSummary();
+      if (state.workbook) parseWorkbook();
+    });
+  }
+
+  function handleRosterFile(file){
+    const reader = new FileReader();
+    reader.onload = evt => {
+      try {
+        const data = new Uint8Array(evt.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const { byNumber, byName, count } = parseRosterSheet(wb.Sheets[wb.SheetNames[0]]);
+        state.roster.byNumber = byNumber;
+        state.roster.byName = byName;
+        state.rosterMeta = { count, fileName: file.name };
+        saveRosterToStorage();
+        renderRosterSummary();
+        if (state.workbook) parseWorkbook();
+      } catch (err) {
+        alert('Could not read that roster file: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  els.rosterDropZone.addEventListener('click', () => els.rosterFileInput.click());
+  els.rosterDropZone.addEventListener('dragover', e => { e.preventDefault(); els.rosterDropZone.classList.add('drag'); });
+  els.rosterDropZone.addEventListener('dragleave', () => els.rosterDropZone.classList.remove('drag'));
+  els.rosterDropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    els.rosterDropZone.classList.remove('drag');
+    if (e.dataTransfer.files.length) handleRosterFile(e.dataTransfer.files[0]);
+  });
+  els.rosterFileInput.addEventListener('change', e => {
+    if (e.target.files.length) handleRosterFile(e.target.files[0]);
+  });
+
+  if (loadRosterFromStorage()) renderRosterSummary();
+
+  els.roomNumbers.addEventListener('change', () => { if (state.workbook) parseWorkbook(); });
+  els.bedsPerRoom.addEventListener('change', () => { if (state.workbook) parseWorkbook(); });
+
+  // ---------------------------------------------------------------------
+  // Parsing
+  // ---------------------------------------------------------------------
+  function sheetToRows(sheet){
+    return XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+  }
+
+  function findHeaderRow(rows){
+    // The header row is whichever of the first several rows has the most
+    // cells that parse as a day-of-month integer (1-31).
+    let bestIdx = 0, bestCount = -1;
+    const scanLimit = Math.min(rows.length, 8);
+    for (let i = 0; i < scanLimit; i++){
+      const count = rows[i].filter(c => {
+        const n = parseInt(String(c).trim(), 10);
+        return Number.isInteger(n) && n >= 1 && n <= 31 && String(n) === String(c).trim();
+      }).length;
+      if (count > bestCount){ bestCount = count; bestIdx = i; }
+    }
+    return bestIdx;
+  }
+
+  function parseScheduleSheet(sheet){
+    const rows = sheetToRows(sheet);
+    const headerIdx = findHeaderRow(rows);
+    const header = rows[headerIdx];
+
+    let nameCol = -1, posCol = -1, numCol = -1;
+    const dayCols = []; // {col, day}
+    header.forEach((cell, col) => {
+      const txt = String(cell).trim();
+      const n = parseInt(txt, 10);
+      if (Number.isInteger(n) && n >= 1 && n <= 31 && String(n) === txt){
+        dayCols.push({ col, day: n });
+      } else if (nameCol === -1 && /name/i.test(txt)){
+        nameCol = col;
+      } else if (numCol === -1 && /crew\s*(no\.?|number|#|id)|badge/i.test(txt)){
+        numCol = col;
+      } else if (posCol === -1 && /position|rank|role|title/i.test(txt)){
+        posCol = col;
+      }
+    });
+    // Fallback: assume first two non-day columns are name, position — but
+    // only if neither a name nor a crew-number column was explicitly found.
+    if (nameCol === -1 && numCol === -1 || posCol === -1){
+      const nonDayCols = [];
+      for (let c = 0; c < header.length; c++){
+        if (!dayCols.find(d => d.col === c)) nonDayCols.push(c);
+      }
+      if (nameCol === -1 && numCol === -1) nameCol = nonDayCols[0] !== undefined ? nonDayCols[0] : 0;
+      if (posCol === -1) posCol = nonDayCols[1] !== undefined ? nonDayCols[1] : 1;
+    }
+    dayCols.sort((a,b) => a.day - b.day);
+
+    const people = [];
+    const unrecognizedSymbols = new Set();
+    const unresolvedCrewNumbers = [];
+    for (let r = headerIdx + 1; r < rows.length; r++){
+      const row = rows[r];
+      let name = '', crewNumber = '';
+      if (nameCol !== -1){
+        name = String(row[nameCol] || '').trim();
+      } else if (numCol !== -1){
+        crewNumber = String(row[numCol] || '').trim();
+        if (!crewNumber) continue;
+        const rosterEntry = state.roster.byNumber[crewNumber];
+        if (rosterEntry && rosterEntry.name){
+          name = rosterEntry.name;
+        } else {
+          name = `Crew #${crewNumber}`;
+          unresolvedCrewNumbers.push(crewNumber);
+        }
+      }
+      if (!name) continue;
+      const position = String(row[posCol] || '').trim();
+      const dayStatus = {};
+      dayCols.forEach(({col, day}) => {
+        let raw = String(row[col] || '').trim().toUpperCase();
+        if (raw === '') raw = 'V';
+        if (!['V','1','+','-'].includes(raw)) {
+          unrecognizedSymbols.add(raw);
+          raw = 'V';
+        }
+        dayStatus[day] = raw;
+      });
+      people.push({ name, position, dayStatus, crewNumber: crewNumber || null });
+    }
+    return { people, dayNumbers: dayCols.map(d => d.day), unrecognizedSymbols: [...unrecognizedSymbols], unresolvedCrewNumbers };
+  }
+
+  function parseGenderSheet(sheet){
+    const rows = sheetToRows(sheet);
+    const headerIdx = findHeaderRow(rows.length > 3 ? rows.slice(0,3).concat([[]]) : rows); // gender sheet has no day cols; just use row 0
+    const header = rows[0] || [];
+    let nameCol = -1, genderCol = -1;
+    header.forEach((cell, col) => {
+      const txt = String(cell).trim();
+      if (nameCol === -1 && /name/i.test(txt)) nameCol = col;
+      if (genderCol === -1 && /gender|sex/i.test(txt)) genderCol = col;
+    });
+    if (nameCol === -1) nameCol = 0;
+    if (genderCol === -1) genderCol = 1;
+
+    const map = {};
+    for (let r = 1; r < rows.length; r++){
+      const row = rows[r];
+      const name = String(row[nameCol] || '').trim();
+      if (!name) continue;
+      const gender = String(row[genderCol] || '').trim();
+      if (gender) map[normalizeName(name)] = gender;
+    }
+    return map;
+  }
+
+  function normalizeName(name){
+    return name.trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  function isExcludedPosition(position){
+    const p = position.trim().toLowerCase();
+    return EXCLUDED_POSITIONS.includes(p);
+  }
+  function isBasicPosition(position){
+    return position.trim().toLowerCase() === BASIC_POSITION;
+  }
+
+  function buildStaysForPerson(person, genderMap){
+    const days = state.dayNumbers;
+    const stays = [];
+    let curStart = null;
+    let prevDay = null;
+    for (let i = 0; i < days.length; i++){
+      const day = days[i];
+      const status = person.dayStatus[day];
+      const onboard = status === '1' || status === '+';
+      if (onboard && curStart === null){
+        curStart = day;
+      }
+      if (!onboard && curStart !== null){
+        stays.push([curStart, prevDay]);
+        curStart = null;
+      }
+      if (onboard) prevDay = day;
+    }
+    if (curStart !== null) stays.push([curStart, prevDay]);
+
+    const gender = (person.crewNumber && state.roster.byNumber[person.crewNumber] && state.roster.byNumber[person.crewNumber].gender)
+      || state.roster.byName[normalizeName(person.name)]
+      || genderMap[normalizeName(person.name)]
+      || null;
+    return stays.map(([start, end]) => ({
+      name: person.name,
+      crewNumber: person.crewNumber || null,
+      position: person.position,
+      isBasic: isBasicPosition(person.position),
+      gender,
+      start, end
+    }));
+  }
+
+  function parseWorkbook(){
+    if (!state.workbook) return;
+    const sheetNames = state.workbook.SheetNames;
+    const hasRoster = state.rosterMeta && state.rosterMeta.count > 0;
+    if (sheetNames.length < 2 && !hasRoster){
+      alert('This workbook only has one sheet, and no Crew Roster is loaded yet. Either upload a Crew Roster above (Section 01), or include a second sheet with names and declared gender.');
+      return;
+    }
+    const { people, dayNumbers, unrecognizedSymbols, unresolvedCrewNumbers } = parseScheduleSheet(state.workbook.Sheets[sheetNames[0]]);
+    const genderMap = sheetNames.length >= 2 ? parseGenderSheet(state.workbook.Sheets[sheetNames[1]]) : {};
+
+    state.dayNumbers = dayNumbers;
+    state.people = people;
+
+    const roomIds = els.roomNumbers.value.split(',').map(s => s.trim()).filter(Boolean);
+    const bedsPerRoom = parseInt(els.bedsPerRoom.value, 10) || 2;
+    state.roomIds = roomIds;
+    state.numRooms = roomIds.length;
+    state.bedsPerRoom = bedsPerRoom;
+
+    let excludedCount = 0;
+    const unknownGenderNames = [];
+    let stays = [];
+
+    people.forEach(person => {
+      if (isExcludedPosition(person.position)){
+        excludedCount++;
+        return;
+      }
+      const personStays = buildStaysForPerson(person, genderMap);
+      personStays.forEach(stay => {
+        if (!stay.gender){
+          if (!unknownGenderNames.some(u => u.name === stay.name && u.crewNumber === stay.crewNumber)) unknownGenderNames.push({ name: stay.name, crewNumber: stay.crewNumber, position: stay.position });
+        } else {
+          stays.push(stay);
+        }
+      });
+    });
+
+    state.stays = stays;
+    state.excludedCount = excludedCount;
+    state.unknownGenderNames = unknownGenderNames;
+    state.unrecognizedSymbols = unrecognizedSymbols;
+    state.unresolvedCrewNumbers = unresolvedCrewNumbers;
+
+    // Capacity check
+    const totalBeds = roomIds.length * bedsPerRoom;
+    const overflowDays = [];
+    if (dayNumbers.length){
+      dayNumbers.forEach(day => {
+        const headcount = stays.filter(s => day >= s.start && day <= s.end).length;
+        if (headcount > totalBeds) overflowDays.push({ day, headcount, capacity: totalBeds });
+      });
+    }
+    state.overflowDays = overflowDays;
+
+    // Gender color assignment (stable across renders)
+    const genders = [...new Set(stays.map(s => s.gender))];
+    const colorClasses = ['occ-port', 'occ-starboard', 'occ-neutral'];
+    state.genderColorMap = {};
+    genders.forEach((g, i) => { state.genderColorMap[g] = colorClasses[i] || 'occ-neutral'; });
+
+    try {
+      renderPreview();
+      renderPrefsPanel();
+      renderLockedRoomsPanel();
+    } catch (err) {
+      console.error('Error while rendering parsed schedule:', err);
+      alert('Something went wrong while displaying the parsed schedule: ' + err.message + '\n\nCheck the browser console for details.');
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Preview
+  // ---------------------------------------------------------------------
+  function renderPreview(){
+    els.previewPanel.style.display = 'block';
+    els.resultsPanel.style.display = 'none';
+
+    if (state.dayNumbers.length && els.scheduleStartDate && !els.scheduleStartDate.value){
+      const today = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      els.scheduleStartDate.value = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    }
+    if (state.dayNumbers.length && els.checkpointDay){
+      els.checkpointDay.min = state.dayNumbers[0];
+      els.checkpointDay.max = state.dayNumbers[state.dayNumbers.length - 1];
+      els.checkpointDay.value = state.dayNumbers[0];
+    }
+
+    const eligiblePeopleCount = new Set(state.stays.map(s => s.name)).size;
+    const basicCount = new Set(state.stays.filter(s => s.isBasic).map(s => s.name)).size;
+    const dayRange = state.dayNumbers.length ? `day ${state.dayNumbers[0]}–${state.dayNumbers[state.dayNumbers.length-1]}` : 'no days detected';
+
+    els.previewSub.textContent = `${state.people.length} rows read from the schedule sheet, covering ${dayRange}.`;
+
+    els.statGrid.innerHTML = `
+      <div class="stat-box"><div class="num">${eligiblePeopleCount}</div><div class="lbl">Crew to room</div></div>
+      <div class="stat-box"><div class="num">${state.excludedCount}</div><div class="lbl">Excluded by position</div></div>
+      <div class="stat-box"><div class="num">${basicCount}</div><div class="lbl">Hotel Staff Basic</div></div>
+      <div class="stat-box ${state.unknownGenderNames.length ? 'warn' : ''}"><div class="num">${state.unknownGenderNames.length}</div><div class="lbl">Unknown gender</div></div>
+      <div class="stat-box ${state.overflowDays.length ? 'danger' : ''}"><div class="num">${state.overflowDays.length}</div><div class="lbl">Overflow days</div></div>
+      <div class="stat-box"><div class="num">${state.numRooms}×${state.bedsPerRoom}</div><div class="lbl">Beds available</div></div>
+    `;
+
+    let warnHtml = '';
+    if (state.unknownGenderNames.length){
+      warnHtml += `<div class="warn-block"><b>No declared gender found</b> for ${state.unknownGenderNames.length} ${state.unknownGenderNames.length === 1 ? 'person' : 'people'} — left out of auto-assignment since a room can't be safely picked without it. Add them to the Crew Roster and re-upload it, or place them manually.<ul>${state.unknownGenderNames.map(u => {
+        const idBits = [];
+        if (u.name && !/^Crew #/.test(u.name)) idBits.push(u.name);
+        if (u.crewNumber) idBits.push(`Crew #${u.crewNumber}`);
+        if (idBits.length === 0) idBits.push(u.name || 'Unknown');
+        return `<li>${idBits.join(' — ')} (${u.position})</li>`;
+      }).join('')}</ul></div>`;
+    }
+    if (state.unrecognizedSymbols && state.unrecognizedSymbols.length){
+      warnHtml += `<div class="warn-block"><b>Unrecognized day symbols</b> treated as vacation (V): ${state.unrecognizedSymbols.map(s => `"${s}"`).join(', ')}</div>`;
+    }
+    if (state.unresolvedCrewNumbers && state.unresolvedCrewNumbers.length){
+      warnHtml += `<div class="danger-block"><b>${state.unresolvedCrewNumbers.length} crew number(s) in the schedule weren't found in your Crew Roster</b> — shown as "Crew #N" placeholders with no known gender, so they're excluded from auto-assignment. Add them to the roster and re-upload it.<ul>${state.unresolvedCrewNumbers.slice(0,15).map(n => `<li>Crew #${n}</li>`).join('')}${state.unresolvedCrewNumbers.length>15 ? `<li>+ ${state.unresolvedCrewNumbers.length-15} more</li>` : ''}</ul></div>`;
+    }
+    if (state.overflowDays.length){
+      warnHtml += `<div class="danger-block"><b>Capacity exceeded</b> on ${state.overflowDays.length} day(s) — more crew onboard than beds available. These days can't be fully solved; the tool will still assign as much as it can and list who's left out.<ul>${state.overflowDays.slice(0,10).map(o => `<li>Day ${o.day}: ${o.headcount} onboard, ${o.capacity} beds</li>`).join('')}${state.overflowDays.length>10 ? `<li>+ ${state.overflowDays.length-10} more day(s)</li>` : ''}</ul></div>`;
+    }
+    els.warnHolder.innerHTML = warnHtml;
+  }
+
+  function renderPrefsPanel(){
+    // One row per unique eligible person (dedup across multiple stays).
+    const seen = new Map();
+    state.stays.forEach(s => { if (!seen.has(s.name)) seen.set(s.name, s.position); });
+
+    if (state.people.length === 0){
+      // Nothing has been parsed at all yet — no file uploaded/processed.
+      els.prefsPanel.style.display = 'none';
+      return;
+    }
+    els.prefsPanel.style.display = 'block';
+
+    if (seen.size === 0){
+      // A schedule WAS parsed, but nobody made it through to being
+      // eligible for a room — never silently disappear here, since that's
+      // indistinguishable from the tool being broken. Say why, and keep
+      // Assign Rooms visible (disabled) so it's never just missing.
+      els.prefsList.innerHTML = `<p style="color:var(--ink-dim); font-size:13px; line-height:1.6;">
+        No one is currently eligible for a room. This usually means: every row's position is excluded,
+        every crew number failed to resolve against the Crew Roster, or every declared gender is unknown —
+        check the warnings in Section 06 above for specifics.
+      </p>`;
+      els.generateBtn.disabled = true;
+      els.generateBtn.title = 'Nothing eligible to assign yet — see the warnings above';
+      return;
+    }
+    els.generateBtn.disabled = false;
+    els.generateBtn.title = '';
+
+    const roomOptions = state.roomIds.map(id => `<option value="${id}">${id}</option>`).join('');
+    els.prefsList.innerHTML = [...seen.entries()].map(([name, position]) => {
+      const safeId = 'pref-' + name.replace(/[^a-z0-9]/gi, '-');
+      const current = state.preferences[name] || '';
+      return `<div class="pref-row">
+        <span class="who">${name}<span class="pos">${position}</span></span>
+        <select id="${safeId}" data-name="${name}">
+          <option value="">No preference</option>
+          ${roomOptions}
+        </select>
+      </div>`;
+    }).join('');
+
+    [...seen.keys()].forEach(name => {
+      const safeId = 'pref-' + name.replace(/[^a-z0-9]/gi, '-');
+      const select = document.getElementById(safeId);
+      if (state.preferences[name]) select.value = state.preferences[name];
+      select.addEventListener('change', () => {
+        if (select.value) state.preferences[name] = select.value;
+        else delete state.preferences[name];
+        renderLockedRoomsPanel();
+      });
+    });
+  }
+
+  function occupantSummaryFor(roomId){
+    const room = state.rooms.find(r => r.id === roomId);
+    if (room){
+      const names = new Set();
+      room.beds.forEach(bed => bed.forEach(b => names.add(b.name)));
+      if (names.size > 0) return [...names].join(', ');
+    }
+    const pinned = Object.entries(state.preferences).filter(([, r]) => r === roomId).map(([name]) => name);
+    if (pinned.length) return `Will seed with: ${pinned.join(', ')} (from Room Preferences)`;
+    return state.rooms.length ? 'Currently empty' : 'No plan yet — pin people to this room below in Room Preferences to pre-fill it';
+  }
+
+  function renderLockedRoomsPanel(){
+    if (!state.roomIds || state.roomIds.length === 0){
+      els.lockedRoomsPanel.style.display = 'none';
+      return;
+    }
+    // Drop locks for room ids that no longer exist (e.g. room list edited).
+    [...state.lockedRooms].forEach(id => { if (!state.roomIds.includes(id)) state.lockedRooms.delete(id); });
+
+    els.lockedRoomsPanel.style.display = 'block';
+    els.lockedRoomsList.innerHTML = state.roomIds.map(roomId => {
+      const locked = state.lockedRooms.has(roomId);
+      const safeId = 'lock-' + roomId.replace(/[^a-z0-9]/gi, '-');
+      return `<label class="locked-room-row ${locked ? 'is-locked' : ''}" for="${safeId}">
+        <input type="checkbox" id="${safeId}" data-room-id="${roomId}" ${locked ? 'checked' : ''}>
+        <span>
+          <div class="room-name">Room ${roomId}</div>
+          <div class="room-occ">${occupantSummaryFor(roomId)}</div>
+        </span>
+      </label>`;
+    }).join('');
+
+    state.roomIds.forEach(roomId => {
+      const safeId = 'lock-' + roomId.replace(/[^a-z0-9]/gi, '-');
+      const checkbox = document.getElementById(safeId);
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) state.lockedRooms.add(roomId);
+        else state.lockedRooms.delete(roomId);
+        checkbox.closest('.locked-room-row').classList.toggle('is-locked', checkbox.checked);
+      });
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Room assignment algorithm
+  // ---------------------------------------------------------------------
+  function overlaps(aStart, aEnd, bStart, bEnd){
+    return aStart <= bEnd && bStart <= aEnd;
+  }
+
+  function assignStays(staysToPlace, preferences, seedRooms){
+    const bedsPerRoom = state.bedsPerRoom;
+    const rooms = seedRooms || state.roomIds.map(id => ({ id, beds: Array.from({length: bedsPerRoom}, () => []) }));
+
+    let unassigned = [];
+
+    function bedFree(bed, start, end){
+      return !bed.some(b => overlaps(b.start, b.end, start, end));
+    }
+    function otherBedsGenderOk(room, bedIdx, start, end, gender){
+      for (let i = 0; i < room.beds.length; i++){
+        if (i === bedIdx) continue;
+        const conflict = room.beds[i].some(b => overlaps(b.start, b.end, start, end) && b.gender !== gender);
+        if (conflict) return false;
+      }
+      return true;
+    }
+    function roomHasGenderHistory(room, gender){
+      return room.beds.some(bed => bed.some(b => b.gender === gender));
+    }
+    function otherBedHasOverlapSameGender(room, bedIdx, start, end, gender, requireBasic){
+      for (let i = 0; i < room.beds.length; i++){
+        if (i === bedIdx) continue;
+        const hit = room.beds[i].some(b => overlaps(b.start, b.end, start, end) && b.gender === gender && (!requireBasic || b.isBasic));
+        if (hit) return true;
+      }
+      return false;
+    }
+    // True if the other bed(s) in this room, for the overlapping window, are
+    // occupied ONLY by Basic-position people — i.e. this looks like a room
+    // that should stay solo for them. Ordinary (non-basic) placement skips
+    // these; the basics' own "pair with each other" pass is allowed in.
+    function otherBedReservedForBasicSolo(room, bedIdx, start, end){
+      for (let i = 0; i < room.beds.length; i++){
+        if (i === bedIdx) continue;
+        const overlapping = room.beds[i].filter(b => overlaps(b.start, b.end, start, end));
+        if (overlapping.length > 0 && overlapping.every(b => b.isBasic)) return true;
+      }
+      return false;
+    }
+    function roomFullyEmptyFor(room, start, end){
+      return room.beds.every(bed => bedFree(bed, start, end));
+    }
+    function roomTouchedAtAll(room){
+      return room.beds.some(bed => bed.length > 0);
+    }
+
+    function bestSlotFor(stay, opts){
+      opts = opts || {};
+      let best = null, bestScore = -Infinity;
+      rooms.forEach((room, roomIdx) => {
+        if (room.locked) return;
+        for (let bedIdx = 0; bedIdx < room.beds.length; bedIdx++){
+          const bed = room.beds[bedIdx];
+          if (!bedFree(bed, stay.start, stay.end)) continue;
+          if (!otherBedsGenderOk(room, bedIdx, stay.start, stay.end, stay.gender)) continue;
+          if (!opts.preferBasicPartner && !opts.allowBasicSoloIntrusion && !stay.isBasic && otherBedReservedForBasicSolo(room, bedIdx, stay.start, stay.end)) continue;
+
+          let score = 0;
+          if (otherBedHasOverlapSameGender(room, bedIdx, stay.start, stay.end, stay.gender, opts.preferBasicPartner)) score += 100;
+          if (opts.preferBasicPartner && otherBedHasOverlapSameGender(room, bedIdx, stay.start, stay.end, stay.gender, false)) score += 20;
+          if (roomHasGenderHistory(room, stay.gender)) score += 10;
+          if (!roomTouchedAtAll(room)) score -= 5; // slight penalty for opening a brand new room when consolidating
+          score -= roomIdx * 0.001; // deterministic tiebreak toward earlier rooms in the list
+
+          if (score > bestScore){ bestScore = score; best = { room, bedIdx }; }
+        }
+      });
+      return best;
+    }
+
+    function bookStay(room, bedIdx, stay){
+      room.beds[bedIdx].push({ start: stay.start, end: stay.end, gender: stay.gender, name: stay.name, position: stay.position, isBasic: stay.isBasic });
+    }
+
+    const unhonoredPrefs = [];
+
+    // 0. Preferences: try to seat requested people in their requested room
+    // first, before any general packing happens. A pin never overrides the
+    // gender rule — if it can't be honored without mixing genders or the
+    // room's already full for those days, it falls back to normal placement.
+    const pinned = [];
+    const leftoverNonBasic = [];
+    const leftoverBasic = [];
+    staysToPlace.forEach(stay => {
+      const wantedRoomId = preferences[stay.name];
+      if (wantedRoomId) pinned.push(stay);
+      else (stay.isBasic ? leftoverBasic : leftoverNonBasic).push(stay);
+    });
+    pinned.sort((a,b) => a.start - b.start || (b.end-b.start) - (a.end-a.start));
+    pinned.forEach(stay => {
+      const wantedRoomId = preferences[stay.name];
+      const room = rooms.find(r => r.id === wantedRoomId);
+      let placed = false;
+      if (room){
+        for (let bedIdx = 0; bedIdx < room.beds.length; bedIdx++){
+          const bed = room.beds[bedIdx];
+          if (!bedFree(bed, stay.start, stay.end)) continue;
+          if (!otherBedsGenderOk(room, bedIdx, stay.start, stay.end, stay.gender)) continue;
+          bookStay(room, bedIdx, stay);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed){
+        unhonoredPrefs.push({ stay, wantedRoomId });
+        (stay.isBasic ? leftoverBasic : leftoverNonBasic).push(stay);
+      }
+    });
+
+    // 1. Non-basic stays: sort by start asc, duration desc
+    const nonBasic = leftoverNonBasic.sort((a,b) => a.start - b.start || (b.end-b.start) - (a.end-a.start));
+    const basicSoloFallbacks = [];
+    nonBasic.forEach(stay => {
+      let slot = bestSlotFor(stay, {});
+      if (!slot){
+        // Last resort: no room works without disturbing a solo Basic person
+        // — better than leaving someone with nowhere to sleep. Only ever
+        // reached once every other option has failed.
+        slot = bestSlotFor(stay, { allowBasicSoloIntrusion: true });
+        if (slot) basicSoloFallbacks.push({ stay, roomId: slot.room.id });
+      }
+      if (slot) bookStay(slot.room, slot.bedIdx, stay);
+      else unassigned.push(stay);
+    });
+
+    // 2. Basic stays — first pass: fully empty rooms only
+    const basics = leftoverBasic.sort((a,b) => a.start - b.start || (b.end-b.start) - (a.end-a.start));
+    const needsSharing = [];
+    basics.forEach(stay => {
+      const emptyRoom = rooms.find(r => !r.locked && roomFullyEmptyFor(r, stay.start, stay.end));
+      if (emptyRoom){
+        bookStay(emptyRoom, 0, stay);
+      } else {
+        needsSharing.push(stay);
+      }
+    });
+    // second pass: pair remaining basics with each other first, then anyone
+    needsSharing.forEach(stay => {
+      let slot = bestSlotFor(stay, { preferBasicPartner: true });
+      if (slot) bookStay(slot.room, slot.bedIdx, stay);
+      else unassigned.push(stay);
+    });
+
+    // 3. Absolute last resort: nobody goes without a bed. For anyone still
+    // unassigned, look for two rooms that are each solo-occupied by a
+    // Basic person of the same gender (as each other — not necessarily the
+    // stranded person's gender), merge those two Basics into one room
+    // together, and hand the now fully-vacated room to whoever's stranded.
+    function findFullySoloBasicRooms(){
+      return rooms
+        .map(room => {
+          const names = new Set();
+          let allBasic = true, gender = null;
+          room.beds.forEach(bed => bed.forEach(b => {
+            names.add(b.name);
+            if (!b.isBasic) allBasic = false;
+            gender = b.gender;
+          }));
+          return { room, names, allBasic, gender, bookingCount: room.beds.reduce((n,b) => n + b.length, 0) };
+        })
+        .filter(r => !r.room.locked && r.names.size === 1 && r.allBasic && r.bookingCount > 0);
+    }
+
+    function consolidateAndFree(){
+      const solos = findFullySoloBasicRooms();
+      const byGender = {};
+      solos.forEach(s => { (byGender[s.gender] = byGender[s.gender] || []).push(s); });
+      for (const gender in byGender){
+        const pair = byGender[gender];
+        if (pair.length < 2) continue;
+        const [keep, vacate] = pair;
+        const keepEmptyBedIdx = keep.room.beds.findIndex(bed => bed.length === 0);
+        const vacateBedIdx = vacate.room.beds.findIndex(bed => bed.length > 0);
+        if (keepEmptyBedIdx === -1 || vacateBedIdx === -1) continue;
+        const movedBookings = vacate.room.beds[vacateBedIdx];
+        keep.room.beds[keepEmptyBedIdx].push(...movedBookings);
+        const vacatedName = vacate.names.values().next().value;
+        vacate.room.beds[vacateBedIdx] = [];
+        return { freedRoom: vacate.room, movedPerson: vacatedName, intoRoomId: keep.room.id };
+      }
+      return null;
+    }
+
+    const stillStranded = unassigned;
+    unassigned = [];
+    const capacityConsolidations = [];
+    stillStranded.forEach(stay => {
+      const result = consolidateAndFree();
+      if (result){
+        bookStay(result.freedRoom, 0, stay);
+        capacityConsolidations.push({ stay, freedRoomId: result.freedRoom.id, movedPerson: result.movedPerson, intoRoomId: result.intoRoomId });
+      } else {
+        unassigned.push(stay);
+      }
+    });
+
+    // 3.5. Displacement: before fragmenting the stranded person themselves,
+    // check whether a single existing booking is the ONLY thing standing in
+    // the way of placing them whole — and if that one blocker has anywhere
+    // else it could go for just the conflicting days, bump it there instead.
+    // Only ever moves one other person, and only for the exact days that
+    // actually conflict; never touches a booking that isn't blocking.
+    function bestSlotForElsewhere(miniStay, excludeRoom){
+      let best = null, bestScore = -Infinity;
+      rooms.forEach((room, roomIdx) => {
+        if (room === excludeRoom || room.locked) return;
+        for (let bedIdx = 0; bedIdx < room.beds.length; bedIdx++){
+          const bed = room.beds[bedIdx];
+          if (!bedFree(bed, miniStay.start, miniStay.end)) continue;
+          if (!otherBedsGenderOk(room, bedIdx, miniStay.start, miniStay.end, miniStay.gender)) continue;
+          let score = 0;
+          if (otherBedHasOverlapSameGender(room, bedIdx, miniStay.start, miniStay.end, miniStay.gender, false)) score += 100;
+          if (roomHasGenderHistory(room, miniStay.gender)) score += 10;
+          score -= roomIdx * 0.001;
+          if (score > bestScore){ bestScore = score; best = { room, bedIdx }; }
+        }
+      });
+      return best;
+    }
+
+    // Same feasibility rules as bestSlotForElsewhere, but returns every
+    // valid candidate instead of just the top-scored one — needed because
+    // the "best-looking" option isn't always the one that actually
+    // improves solo-Basic coverage once measured.
+    function allSlotsForElsewhere(miniStay, excludeRoom){
+      const out = [];
+      rooms.forEach(room => {
+        if (room === excludeRoom || room.locked) return;
+        for (let bedIdx = 0; bedIdx < room.beds.length; bedIdx++){
+          const bed = room.beds[bedIdx];
+          if (!bedFree(bed, miniStay.start, miniStay.end)) continue;
+          if (!otherBedsGenderOk(room, bedIdx, miniStay.start, miniStay.end, miniStay.gender)) continue;
+          out.push({ room, bedIdx });
+        }
+      });
+      return out;
+    }
+
+    function tryDisplacement(stay){
+      for (const room of rooms){
+        if (room.locked) continue;
+        for (let bedIdx = 0; bedIdx < room.beds.length; bedIdx++){
+          const bed = room.beds[bedIdx];
+          const blockersInBed = bed
+            .map((b, i) => ({ b, i }))
+            .filter(({b}) => overlaps(b.start, b.end, stay.start, stay.end));
+          let otherBedBlockers = [];
+          for (let i = 0; i < room.beds.length; i++){
+            if (i === bedIdx) continue;
+            room.beds[i].forEach((b, bi) => {
+              if (overlaps(b.start, b.end, stay.start, stay.end) && b.gender !== stay.gender){
+                otherBedBlockers.push({ b, i: bi, bedIdx: i });
+              }
+            });
+          }
+          const totalBlockers = blockersInBed.length + otherBedBlockers.length;
+          if (totalBlockers !== 1) continue; // only handle a single, clean blocker
+
+          const isInTargetBed = blockersInBed.length === 1;
+          const blockerInfo = isInTargetBed ? blockersInBed[0] : otherBedBlockers[0];
+          const blocker = blockerInfo.b;
+          const blockerBedIdx = isInTargetBed ? bedIdx : blockerInfo.bedIdx;
+          const blockerBed = room.beds[blockerBedIdx];
+
+          const conflictStart = Math.max(blocker.start, stay.start);
+          const conflictEnd = Math.min(blocker.end, stay.end);
+          const altSlot = bestSlotForElsewhere(
+            { name: blocker.name, gender: blocker.gender, position: blocker.position, isBasic: blocker.isBasic, start: conflictStart, end: conflictEnd },
+            room
+          );
+          if (!altSlot) continue;
+
+          // Commit: split the blocker's booking around the conflict window,
+          // move just that piece to its new room, and place the stranded
+          // stay whole into the space this frees up.
+          const idxInBed = blockerBed.indexOf(blocker);
+          blockerBed.splice(idxInBed, 1);
+          if (blocker.start < conflictStart){
+            blockerBed.push({ ...blocker, end: conflictStart - 1 });
+          }
+          if (blocker.end > conflictEnd){
+            blockerBed.push({ ...blocker, start: conflictEnd + 1 });
+          }
+          altSlot.room.beds[altSlot.bedIdx].push({ ...blocker, start: conflictStart, end: conflictEnd });
+          bookStay(room, bedIdx, stay);
+
+          return { movedName: blocker.name, movedFromRoomId: room.id, movedToRoomId: altSlot.room.id, conflictStart, conflictEnd };
+        }
+      }
+      return null;
+    }
+
+    const displacements = [];
+    const stillStranded2 = unassigned;
+    unassigned = [];
+    stillStranded2.forEach(stay => {
+      const result = tryDisplacement(stay);
+      if (result){
+        displacements.push({ stay, ...result });
+      } else {
+        unassigned.push(stay);
+      }
+    });
+
+    // 4. Absolute last resort: every day of every stint gets a bed, full
+    // stop — even if that means splitting someone's stint across more than
+    // one room. Gender is still never mixed; position/Basic-solo no longer
+    // matters here. Only reached once stages 1–3 have already failed, so
+    // this never fires for the vast majority of a normal month.
+    const midTurnMoves = [];
+
+    function bedFreeOnDay(bed, day){
+      return !bed.some(b => day >= b.start && day <= b.end);
+    }
+    function otherBedsGenderOkOnDay(room, bedIdx, day, gender){
+      for (let i = 0; i < room.beds.length; i++){
+        if (i === bedIdx) continue;
+        if (room.beds[i].some(b => day >= b.start && day <= b.end && b.gender !== gender)) return false;
+      }
+      return true;
+    }
+    function nextConflictDay(room, bedIdx, fromDay, toDay, gender){
+      for (let day = fromDay; day <= toDay; day++){
+        if (!bedFreeOnDay(room.beds[bedIdx], day)) return day;
+        if (!otherBedsGenderOkOnDay(room, bedIdx, day, gender)) return day;
+      }
+      return toDay + 1;
+    }
+    function bestRunFrom(day, endDay, gender){
+      let best = null, bestLen = 0;
+      rooms.forEach((room, roomIdx) => {
+        if (room.locked) return;
+        room.beds.forEach((bed, bedIdx) => {
+          if (!bedFreeOnDay(bed, day) || !otherBedsGenderOkOnDay(room, bedIdx, day, gender)) return;
+          const conflictDay = nextConflictDay(room, bedIdx, day, endDay, gender);
+          const len = conflictDay - day;
+          if (len > bestLen || (len === bestLen && best && roomIdx < best.roomIdx)){
+            bestLen = len;
+            best = { room, bedIdx, roomIdx, endOfRun: conflictDay - 1 };
+          }
+        });
+      });
+      return best;
+    }
+
+    const finalUnassigned = [];
+    unassigned.forEach(stay => {
+      const segments = [];
+      let day = stay.start;
+      while (day <= stay.end){
+        const run = bestRunFrom(day, stay.end, stay.gender);
+        if (!run){
+          finalUnassigned.push({ ...stay, start: day, end: day });
+          day += 1;
+          continue;
+        }
+        bookStay(run.room, run.bedIdx, { ...stay, start: day, end: run.endOfRun });
+        segments.push({ roomId: run.room.id, start: day, end: run.endOfRun });
+        day = run.endOfRun + 1;
+      }
+      if (segments.length > 1){
+        midTurnMoves.push({ name: stay.name, position: stay.position, segments });
+      }
+    });
+    unassigned = finalUnassigned;
+
+    // 5. Polish pass: everyone already has a bed at this point, so this is
+    // pure improvement, not a fallback. Look for a roommate who could be
+    // relocated elsewhere so that the Basic person they're sharing with
+    // becomes solo — and actually measure the effect on total solo-Basic
+    // coverage before committing, rather than assuming it helps. A swap
+    // only goes ahead if it provably increases (never decreases) how many
+    // Basic-days are covered solo overall, even when — like moving one
+    // Basic's roommate to pair up with a *different* previously-solo
+    // Basic — it trades one solo placement away to gain two elsewhere.
+    const dayMin = state.dayNumbers.length ? state.dayNumbers[0] : 1;
+    const dayMax = state.dayNumbers.length ? state.dayNumbers[state.dayNumbers.length - 1] : 1;
+
+    function soloBasicDayCount(){
+      let count = 0;
+      for (let day = dayMin; day <= dayMax; day++){
+        rooms.forEach(room => {
+          const occ = [];
+          room.beds.forEach(bed => { const o = bed.find(b => day >= b.start && day <= b.end); if (o) occ.push(o); });
+          if (occ.length === 1 && occ[0].isBasic) count++;
+        });
+      }
+      return count;
+    }
+
+    function findOneImprovingSwap(){
+      for (const room of rooms){
+        if (room.locked) continue;
+        if (room.beds.length < 2) continue;
+        for (let i = 0; i < room.beds.length; i++){
+          for (const a of [...room.beds[i]]){
+            if (!a.isBasic) continue;
+            for (let j = 0; j < room.beds.length; j++){
+              if (i === j) continue;
+              for (const b of [...room.beds[j]]){
+                if (!overlaps(a.start, a.end, b.start, b.end)) continue;
+                const candidates = allSlotsForElsewhere(b, room);
+                for (const altSlot of candidates){
+                  const before = soloBasicDayCount();
+                  const bIdx = room.beds[j].indexOf(b);
+                  room.beds[j].splice(bIdx, 1);
+                  altSlot.room.beds[altSlot.bedIdx].push(b);
+                  const after = soloBasicDayCount();
+
+                  if (after > before){
+                    return { movedName: b.name, fromRoomId: room.id, toRoomId: altSlot.room.id, start: b.start, end: b.end, gain: after - before };
+                  }
+                  // No net improvement — undo and try the next candidate.
+                  altSlot.room.beds[altSlot.bedIdx].splice(altSlot.room.beds[altSlot.bedIdx].indexOf(b), 1);
+                  room.beds[j].push(b);
+                }
+              }
+            }
+          }
+        }
+      }
+      return null;
+    }
+
+    const soloSwaps = [];
+    let guard = 0;
+    while (guard < 25){
+      guard++;
+      const swap = findOneImprovingSwap();
+      if (!swap) break;
+      soloSwaps.push(swap);
+    }
+
+    return { rooms, unassigned, unhonoredPrefs, basicSoloFallbacks, capacityConsolidations, displacements, midTurnMoves, soloSwaps };
+  }
+
+  function runAssignment(){
+    const bedsPerRoom = state.bedsPerRoom;
+    let seedRooms = null;
+    let staysToPlace = state.stays;
+    const lockSeedWarnings = [];
+
+    if (state.lockedRooms.size > 0){
+      const lockedBookingKeys = new Set();
+      seedRooms = state.roomIds.map(id => {
+        const isLocked = state.lockedRooms.has(id);
+        if (!isLocked) return { id, beds: Array.from({length: bedsPerRoom}, () => []), locked: false };
+
+        const prevRoom = state.rooms.find(r => r.id === id);
+        if (prevRoom && prevRoom.beds.some(bed => bed.length > 0)){
+          // A plan already exists for this room — carry it forward exactly.
+          const beds = prevRoom.beds.map(bed => bed.map(b => {
+            lockedBookingKeys.add(b.name + '|' + b.start + '|' + b.end);
+            return { ...b };
+          }));
+          return { id, beds, locked: true };
+        }
+
+        // No prior plan for this room yet — seed it from anyone pinned to
+        // this room via Room Preferences instead, so a room can be locked
+        // and pre-filled before the very first generate.
+        const pinnedStays = state.stays.filter(s => state.preferences[s.name] === id);
+        const beds = Array.from({length: bedsPerRoom}, () => []);
+        pinnedStays.forEach(s => {
+          let placed = false;
+          for (let b = 0; b < beds.length && !placed; b++){
+            const bed = beds[b];
+            const free = !bed.some(x => overlaps(x.start, x.end, s.start, s.end));
+            if (!free) continue;
+            let genderOk = true;
+            for (let ob = 0; ob < beds.length; ob++){
+              if (ob === b) continue;
+              if (beds[ob].some(x => overlaps(x.start, x.end, s.start, s.end) && x.gender !== s.gender)) genderOk = false;
+            }
+            if (!genderOk) continue;
+            bed.push({ start: s.start, end: s.end, gender: s.gender, name: s.name, position: s.position, isBasic: s.isBasic });
+            lockedBookingKeys.add(s.name + '|' + s.start + '|' + s.end);
+            placed = true;
+          }
+          if (!placed) lockSeedWarnings.push({ name: s.name, roomId: id });
+        });
+        return { id, beds, locked: true };
+      });
+      staysToPlace = state.stays.filter(s => !lockedBookingKeys.has(s.name + '|' + s.start + '|' + s.end));
+    }
+
+    const result = assignStays(staysToPlace, state.preferences, seedRooms);
+    state.lockSeedWarnings = lockSeedWarnings;
+    state.rooms = result.rooms;
+    state.unassigned = result.unassigned;
+    state.unhonoredPrefs = result.unhonoredPrefs;
+    state.basicSoloFallbacks = result.basicSoloFallbacks;
+    state.capacityConsolidations = result.capacityConsolidations;
+    state.midTurnMoves = result.midTurnMoves;
+    state.displacements = result.displacements;
+    state.soloSwaps = result.soloSwaps;
+  }
+
+  els.generateBtn.addEventListener('click', () => {
+    runAssignment();
+    renderResults();
+    renderAlgorithmWarnings();
+    els.resultsPanel.style.display = 'block';
+    els.resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  // ---------------------------------------------------------------------
+  // Results rendering
+  // ---------------------------------------------------------------------
+  function renderResults(){
+    renderManifest();
+    renderLegend();
+    renderRoomCards();
+    updatePermutationPreview();
+    renderLockedRoomsPanel();
+  }
+
+  function renderAlgorithmWarnings(){
+    let warnHtml = '';
+    if (state.lockSeedWarnings.length){
+      warnHtml += `<div class="danger-block"><b>${state.lockSeedWarnings.length} room preference(s) couldn't be used to pre-fill a locked room</b> — the room ran out of beds or the pinned people conflict on gender. They were placed normally instead.<ul>${state.lockSeedWarnings.map(w => `<li>${w.name} → wanted Room ${w.roomId}</li>`).join('')}</ul></div>`;
+    }
+    if (state.soloSwaps.length){
+      warnHtml += `<div class="warn-block"><b>${state.soloSwaps.length} room ${state.soloSwaps.length === 1 ? 'swap' : 'swaps'} made to give more Basic staff a solo cabin</b> — everyone already had a bed; these are pure improvements, only made because they measurably increased the number of Basic staff rooming alone.<ul>${state.soloSwaps.map(s => `<li>${s.movedName} → Room ${s.toRoomId} (day ${s.start}–${s.end}), freeing Room ${s.fromRoomId} for a solo Basic placement</li>`).join('')}</ul></div>`;
+    }
+    if (state.displacements.length){
+      warnHtml += `<div class="warn-block"><b>${state.displacements.length} ${state.displacements.length === 1 ? 'person was' : 'people were'} temporarily moved to make room for someone who couldn't be placed otherwise.</b><ul>${state.displacements.map(d => `<li>${d.movedName} → Room ${d.movedToRoomId} for day ${d.conflictStart}–${d.conflictEnd}, freeing Room ${d.movedFromRoomId} for ${d.stay.name} (day ${d.stay.start}–${d.stay.end})</li>`).join('')}</ul></div>`;
+    }
+    if (state.midTurnMoves.length){
+      warnHtml += `<div class="warn-block"><b>${state.midTurnMoves.length} ${state.midTurnMoves.length === 1 ? 'stint was' : 'stints were'} split across more than one room mid-turn</b> — every other way to fit them ran out, so this was the only way to make sure nobody went without a bed.<ul>${state.midTurnMoves.map(m => `<li>${m.name}: ${m.segments.map(s => `Room ${s.roomId} (day ${s.start}–${s.end})`).join(' → ')}</li>`).join('')}</ul></div>`;
+    }
+    if (state.capacityConsolidations.length){
+      warnHtml += `<div class="warn-block"><b>${state.capacityConsolidations.length} ${state.capacityConsolidations.length === 1 ? 'room was' : 'rooms were'} freed up by merging two Basic staff of the same gender</b> — this only happens when someone would otherwise have no bed at all.<ul>${state.capacityConsolidations.map(c => `<li>${c.movedPerson} moved into Room ${c.intoRoomId} to free Room ${c.freedRoomId} for ${c.stay.name} (day ${c.stay.start}–${c.stay.end})</li>`).join('')}</ul></div>`;
+    }
+    if (state.basicSoloFallbacks.length){
+      warnHtml += `<div class="warn-block"><b>${state.basicSoloFallbacks.length} ${state.basicSoloFallbacks.length === 1 ? 'person was' : 'people were'} paired into a Hotel Staff Basic's solo room as a last resort</b> — no other gender-compatible bed was free for their full stretch, so this was the only way to avoid leaving them unassigned.<ul>${state.basicSoloFallbacks.map(f => `<li>${f.stay.name} → Room ${f.roomId} (day ${f.stay.start}–${f.stay.end})</li>`).join('')}</ul></div>`;
+    }
+    if (state.unhonoredPrefs.length){
+      warnHtml += `<div class="warn-block"><b>${state.unhonoredPrefs.length} room preference(s) couldn't be honored</b> — the requested room wasn't free or would have mixed genders, so these were placed automatically instead.<ul>${state.unhonoredPrefs.map(u => `<li>${u.stay.name} → requested ${u.wantedRoomId} (day ${u.stay.start}–${u.stay.end})</li>`).join('')}</ul></div>`;
+    }
+    if (state.unassigned.length){
+      warnHtml += `<div class="danger-block"><b>${state.unassigned.length} day(s) genuinely could not be covered</b> — every placement option was exhausted, including splitting stays across rooms, so this is a true capacity shortfall for that gender that day, not a room-preference issue.<ul>${state.unassigned.slice(0,15).map(s => `<li>${s.name} (day ${s.start}–${s.end})</li>`).join('')}${state.unassigned.length>15 ? `<li>+ ${state.unassigned.length-15} more</li>` : ''}</ul></div>`;
+    }
+    els.warnHolder.innerHTML = warnHtml;
+  }
+
+  function renderLegend(){
+    const items = Object.entries(state.genderColorMap).map(([g, cls]) =>
+      `<span><i class="${cls}"></i>${g}</span>`
+    );
+    items.push(`<span><i class="empty-cell" style="background:#1a212b;"></i>Empty</span>`);
+    els.legendHolder.innerHTML = items.join('');
+  }
+
+  function renderManifest(){
+    const days = state.dayNumbers;
+    let html = '<thead><tr><th class="room-label-cell">Room</th>';
+    days.forEach(d => { html += `<th>${d}</th>`; });
+    html += '</tr></thead><tbody>';
+
+    state.rooms.forEach(room => {
+      room.beds.forEach((bed, bedIdx) => {
+        html += `<tr class="bed-row"><td class="room-label-cell">${bedIdx === 0 ? 'Room ' + room.id : ''}</td>`;
+        days.forEach(day => {
+          const booking = bed.find(b => day >= b.start && day <= b.end);
+          if (booking){
+            const cls = state.genderColorMap[booking.gender] || 'occ-neutral';
+            const isStart = day === booking.start;
+            const label = isStart ? initials(booking.name) : '';
+            html += `<td class="daycell"><div class="occ-block ${cls}" title="${booking.name} — ${booking.position} (day ${booking.start}–${booking.end})">${label}</div></td>`;
+          } else {
+            html += `<td class="daycell empty-cell"></td>`;
+          }
+        });
+        html += '</tr>';
+      });
+    });
+    html += '</tbody>';
+    els.manifestTable.innerHTML = html;
+  }
+
+  function initials(name){
+    return name.split(' ').map(p => p[0]).join('').slice(0,3).toUpperCase();
+  }
+
+  function renderRoomCards(){
+    els.roomCards.innerHTML = state.rooms.map(room => {
+      const occupantSet = new Set();
+      room.beds.forEach(bed => bed.forEach(b => occupantSet.add(b.name)));
+      const isSolo = occupantSet.size === 1 && room.beds.length > 1;
+      let rowsHtml = '';
+      room.beds.forEach((bed, bedIdx) => {
+        if (bed.length === 0){
+          rowsHtml += `<div class="occupant-line empty">Bed ${bedIdx+1} — unoccupied</div>`;
+        } else {
+          bed.sort((a,b) => a.start - b.start).forEach(b => {
+            rowsHtml += `<div class="occupant-line" data-draggable="1" data-room="${room.id}" data-bed="${bedIdx}" data-name="${b.name}" data-start="${b.start}" data-end="${b.end}">
+              <span class="drag-handle" title="Drag to move to another room">⠿</span>
+              <span class="who">${b.name}<span class="pos">${b.position}</span></span>
+              <span class="when">d${b.start}–${b.end}</span>
+            </div>`;
+          });
+        }
+      });
+      return `<div class="room-card" data-room-id="${room.id}">
+        <div class="room-title">Room ${room.id} ${room.locked ? '<span class="solo-tag" style="color:var(--brass); border-color:var(--brass-dim);">Locked</span>' : ''} ${isSolo ? '<span class="solo-tag">Solo</span>' : ''}</div>
+        ${rowsHtml}
+      </div>`;
+    }).join('');
+  }
+
+  // ---------------------------------------------------------------------
+  // Manual drag-and-drop room editing. Moves a person's existing stay
+  // (start/end days untouched — those come from the schedule and are never
+  // editable here) into a different room, as long as it wouldn't create a
+  // gender conflict or double-book a bed for overlapping days.
+  // ---------------------------------------------------------------------
+  let dragState = null;
+
+  function findBooking(roomId, bedIdx, name, start, end){
+    const room = state.rooms.find(r => r.id === roomId);
+    if (!room || !room.beds[bedIdx]) return null;
+    return room.beds[bedIdx].find(b => b.name === name && b.start === start && b.end === end) || null;
+  }
+
+  function roomHasFreeCompatibleBed(room, start, end, gender, excludeBedIdx){
+    for (let bedIdx = 0; bedIdx < room.beds.length; bedIdx++){
+      const bed = room.beds[bedIdx];
+      const free = !bed.some(b => overlaps(b.start, b.end, start, end));
+      if (!free) continue;
+      let genderOk = true;
+      for (let i = 0; i < room.beds.length; i++){
+        if (i === bedIdx) continue;
+        if (room.beds[i].some(b => overlaps(b.start, b.end, start, end) && b.gender !== gender)) genderOk = false;
+      }
+      if (genderOk) return bedIdx;
+    }
+    return -1;
+  }
+
+  function canDropOn(targetRoomId){
+    if (!dragState || targetRoomId === dragState.sourceRoomId) return -1;
+    const targetRoom = state.rooms.find(r => r.id === targetRoomId);
+    if (!targetRoom) return -1;
+    return roomHasFreeCompatibleBed(targetRoom, dragState.start, dragState.end, dragState.gender, -1);
+  }
+
+  function showDragMessage(text, cls){
+    els.dragMessage.textContent = text;
+    els.dragMessage.className = 'drag-message' + (cls ? ' ' + cls : '');
+    clearTimeout(showDragMessage._t);
+    showDragMessage._t = setTimeout(() => { els.dragMessage.textContent = ''; els.dragMessage.className = 'drag-message'; }, 3500);
+  }
+
+  function positionGhost(x, y){
+    if (dragState && dragState.ghost){
+      dragState.ghost.style.left = x + 'px';
+      dragState.ghost.style.top = y + 'px';
+    }
+  }
+
+  function clearDropHighlights(){
+    els.roomCards.querySelectorAll('.room-card').forEach(c => c.classList.remove('drop-target-valid', 'drop-target-invalid'));
+  }
+
+  function updateDropHighlight(x, y){
+    clearDropHighlights();
+    const el = document.elementFromPoint(x, y);
+    const card = el ? el.closest('.room-card') : null;
+    if (!card || !dragState) return;
+    const targetRoomId = card.dataset.roomId;
+    if (targetRoomId === dragState.sourceRoomId) return;
+    const valid = canDropOn(targetRoomId) !== -1;
+    card.classList.add(valid ? 'drop-target-valid' : 'drop-target-invalid');
+  }
+
+  function onDragMove(ev){
+    const point = ev.touches ? ev.touches[0] : ev;
+    positionGhost(point.clientX, point.clientY);
+    updateDropHighlight(point.clientX, point.clientY);
+  }
+
+  function onDragEnd(ev){
+    document.removeEventListener('pointermove', onDragMove);
+    document.removeEventListener('pointerup', onDragEnd);
+    if (!dragState) return;
+
+    const point = ev.changedTouches ? ev.changedTouches[0] : ev;
+    const el = document.elementFromPoint(point.clientX, point.clientY);
+    const card = el ? el.closest('.room-card') : null;
+    clearDropHighlights();
+    if (dragState.ghost) dragState.ghost.remove();
+
+    if (card){
+      const targetRoomId = card.dataset.roomId;
+      if (targetRoomId !== dragState.sourceRoomId){
+        const bedIdx = canDropOn(targetRoomId);
+        if (bedIdx === -1){
+          showDragMessage(`Can't move ${dragState.name} there — gender mismatch or the bed's already taken for those days.`, 'error');
+        } else {
+          const sourceRoom = state.rooms.find(r => r.id === dragState.sourceRoomId);
+          const sourceBed = sourceRoom.beds[dragState.sourceBedIdx];
+          const idx = sourceBed.findIndex(b => b.name === dragState.name && b.start === dragState.start && b.end === dragState.end);
+          if (idx !== -1){
+            const [booking] = sourceBed.splice(idx, 1);
+            const targetRoom = state.rooms.find(r => r.id === targetRoomId);
+            targetRoom.beds[bedIdx].push(booking);
+            renderResults();
+            showDragMessage(`Moved ${booking.name} to Room ${targetRoomId}.`, 'success');
+          }
+        }
+      }
+    }
+    dragState = null;
+  }
+
+  els.roomCards.addEventListener('pointerdown', e => {
+    const line = e.target.closest('.occupant-line[data-draggable]');
+    if (!line) return;
+    e.preventDefault();
+
+    const name = line.dataset.name;
+    const start = parseInt(line.dataset.start, 10);
+    const end = parseInt(line.dataset.end, 10);
+    const sourceRoomId = line.dataset.room;
+    const sourceBedIdx = parseInt(line.dataset.bed, 10);
+    const booking = findBooking(sourceRoomId, sourceBedIdx, name, start, end);
+    if (!booking) return;
+
+    const ghost = document.createElement('div');
+    ghost.className = 'drag-ghost';
+    ghost.textContent = `${name} · day ${start}–${end}`;
+    document.body.appendChild(ghost);
+
+    dragState = { name, start, end, sourceRoomId, sourceBedIdx, gender: booking.gender, ghost };
+    positionGhost(e.clientX, e.clientY);
+    updateDropHighlight(e.clientX, e.clientY);
+
+    document.addEventListener('pointermove', onDragMove);
+    document.addEventListener('pointerup', onDragEnd);
+  });
+
+  // ---------------------------------------------------------------------
+  // Checkpoint replanning: freeze everything before a chosen day, let the
+  // person correct the actual lineup for that day, then re-run the
+  // assignment for the remainder of the month around that correction.
+  // ---------------------------------------------------------------------
+  function computeCheckpointSnapshot(day){
+    const snapshot = [];
+    state.roomIds.forEach(roomId => {
+      const room = state.rooms.find(r => r.id === roomId);
+      const beds = room ? room.beds : [];
+      beds.forEach((bed, bedIdx) => {
+        const occ = (bed || []).find(b => day >= b.start && day <= b.end);
+        snapshot.push({
+          roomId, bedIdx,
+          name: occ ? occ.name : '',
+          position: occ ? occ.position : '',
+          gender: occ ? occ.gender : null,
+          isBasic: occ ? occ.isBasic : false,
+        });
+      });
+    });
+    return snapshot;
+  }
+
+  function renderCheckpointEditor(){
+    const day = state.checkpointDay;
+    const grouped = {};
+    state.checkpointSnapshot.forEach(slot => {
+      (grouped[slot.roomId] = grouped[slot.roomId] || []).push(slot);
+    });
+    els.checkpointCards.innerHTML = state.roomIds.map(roomId => {
+      const slots = grouped[roomId] || [];
+      const rowsHtml = slots.map(slot => {
+        const effectiveRoom = state.checkpointOverrides[slot.name] || slot.roomId;
+        if (!slot.name) return `<div class="occupant-line empty">Bed ${slot.bedIdx+1} — unoccupied</div>`;
+        if (effectiveRoom !== slot.roomId) return ''; // moved away by an override, drawn under its new room instead
+        return `<div class="occupant-line" data-draggable="1" data-cp-name="${slot.name}" data-cp-room="${slot.roomId}" data-cp-gender="${slot.gender || ''}" data-cp-basic="${slot.isBasic ? '1':'0'}">
+          <span class="drag-handle" title="Drag to correct their room for day ${day} onward">⠿</span>
+          <span class="who">${slot.name}<span class="pos">${slot.position}</span></span>
+        </div>`;
+      }).join('');
+      // Also draw anyone whose override points INTO this room from elsewhere
+      const movedInHtml = state.checkpointSnapshot
+        .filter(slot => slot.name && state.checkpointOverrides[slot.name] === roomId && slot.roomId !== roomId)
+        .map(slot => `<div class="occupant-line" data-draggable="1" data-cp-name="${slot.name}" data-cp-room="${roomId}" data-cp-gender="${slot.gender || ''}" data-cp-basic="${slot.isBasic ? '1':'0'}">
+          <span class="drag-handle" title="Drag to correct their room for day ${day} onward">⠿</span>
+          <span class="who">${slot.name}<span class="pos">${slot.position}</span> <span class="pos">(moved here)</span></span>
+        </div>`).join('');
+      return `<div class="room-card" data-room-id="${roomId}">
+        <div class="room-title">Room ${roomId}</div>
+        ${rowsHtml}${movedInHtml}
+      </div>`;
+    }).join('');
+  }
+
+  let cpDragState = null;
+
+  function cpRoomHasSpace(targetRoomId, gender, excludeName){
+    // How many occupied beds does this room have as of the checkpoint,
+    // after applying overrides, excluding the person currently being
+    // dragged? Also checks gender compatibility against whoever's there.
+    const occupants = state.checkpointSnapshot.filter(slot => {
+      if (!slot.name || slot.name === excludeName) return false;
+      const effectiveRoom = state.checkpointOverrides[slot.name] || slot.roomId;
+      return effectiveRoom === targetRoomId;
+    });
+    if (occupants.length >= state.bedsPerRoom) return false;
+    return occupants.every(o => o.gender === gender);
+  }
+
+  function cpClearHighlights(){
+    els.checkpointCards.querySelectorAll('.room-card').forEach(c => c.classList.remove('drop-target-valid', 'drop-target-invalid'));
+  }
+
+  function cpUpdateHighlight(x, y){
+    cpClearHighlights();
+    const el = document.elementFromPoint(x, y);
+    const card = el ? el.closest('.room-card') : null;
+    if (!card || !cpDragState) return;
+    const targetRoomId = card.dataset.roomId;
+    if (targetRoomId === cpDragState.currentRoom) return;
+    const valid = cpRoomHasSpace(targetRoomId, cpDragState.gender, cpDragState.name);
+    card.classList.add(valid ? 'drop-target-valid' : 'drop-target-invalid');
+  }
+
+  function cpShowMessage(text, cls){
+    els.checkpointDragMessage.textContent = text;
+    els.checkpointDragMessage.className = 'drag-message' + (cls ? ' ' + cls : '');
+    clearTimeout(cpShowMessage._t);
+    cpShowMessage._t = setTimeout(() => { els.checkpointDragMessage.textContent = ''; els.checkpointDragMessage.className = 'drag-message'; }, 3500);
+  }
+
+  function cpOnMove(ev){
+    const p = ev.touches ? ev.touches[0] : ev;
+    if (cpDragState && cpDragState.ghost){
+      cpDragState.ghost.style.left = p.clientX + 'px';
+      cpDragState.ghost.style.top = p.clientY + 'px';
+    }
+    cpUpdateHighlight(p.clientX, p.clientY);
+  }
+
+  function cpOnEnd(ev){
+    document.removeEventListener('pointermove', cpOnMove);
+    document.removeEventListener('pointerup', cpOnEnd);
+    if (!cpDragState) return;
+    const p = ev.changedTouches ? ev.changedTouches[0] : ev;
+    const el = document.elementFromPoint(p.clientX, p.clientY);
+    const card = el ? el.closest('.room-card') : null;
+    cpClearHighlights();
+    if (cpDragState.ghost) cpDragState.ghost.remove();
+
+    if (card){
+      const targetRoomId = card.dataset.roomId;
+      if (targetRoomId !== cpDragState.currentRoom){
+        if (!cpRoomHasSpace(targetRoomId, cpDragState.gender, cpDragState.name)){
+          cpShowMessage(`Can't put ${cpDragState.name} there — gender mismatch or the room's already full.`, 'error');
+        } else {
+          state.checkpointOverrides[cpDragState.name] = targetRoomId;
+          renderCheckpointEditor();
+          cpShowMessage(`${cpDragState.name} will move to Room ${targetRoomId} from day ${state.checkpointDay} onward.`, 'success');
+        }
+      }
+    }
+    cpDragState = null;
+  }
+
+  els.checkpointCards.addEventListener('pointerdown', e => {
+    const line = e.target.closest('.occupant-line[data-draggable]');
+    if (!line) return;
+    e.preventDefault();
+    const name = line.dataset.cpName;
+    const currentRoom = line.dataset.cpRoom;
+    const gender = line.dataset.cpGender;
+
+    const ghost = document.createElement('div');
+    ghost.className = 'drag-ghost';
+    ghost.textContent = name;
+    document.body.appendChild(ghost);
+    ghost.style.left = e.clientX + 'px';
+    ghost.style.top = e.clientY + 'px';
+
+    cpDragState = { name, currentRoom, gender, ghost };
+    cpUpdateHighlight(e.clientX, e.clientY);
+
+    document.addEventListener('pointermove', cpOnMove);
+    document.addEventListener('pointerup', cpOnEnd);
+  });
+
+  els.loadCheckpointBtn.addEventListener('click', () => {
+    const day = parseInt(els.checkpointDay.value, 10);
+    if (!day || !state.dayNumbers.includes(day)){
+      alert('Enter a valid day within the parsed schedule range.');
+      return;
+    }
+    state.checkpointDay = day;
+    state.checkpointOverrides = {};
+    state.checkpointSnapshot = computeCheckpointSnapshot(day);
+    els.checkpointDayLabel.textContent = day;
+    els.checkpointDayLabel2.textContent = day;
+    els.checkpointEditorWrap.style.display = 'block';
+    renderCheckpointEditor();
+  });
+
+  els.cancelCheckpointBtn.addEventListener('click', () => {
+    state.checkpointDay = null;
+    state.checkpointOverrides = {};
+    state.checkpointSnapshot = [];
+    els.checkpointEditorWrap.style.display = 'none';
+  });
+
+  function splitStaysAtCheckpoint(day){
+    const seedRooms = state.roomIds.map(id => ({ id, beds: Array.from({length: state.bedsPerRoom}, () => []) }));
+    const afterStays = [];
+    state.rooms.forEach(room => {
+      const seedRoom = seedRooms.find(r => r.id === room.id);
+      room.beds.forEach((bed, bedIdx) => {
+        bed.forEach(b => {
+          if (b.end < day){
+            seedRoom.beds[bedIdx].push({ ...b });
+          } else if (b.start >= day){
+            afterStays.push({ name: b.name, gender: b.gender, position: b.position, isBasic: b.isBasic, start: b.start, end: b.end });
+          } else {
+            seedRoom.beds[bedIdx].push({ ...b, end: day - 1 });
+            afterStays.push({ name: b.name, gender: b.gender, position: b.position, isBasic: b.isBasic, start: day, end: b.end });
+          }
+        });
+      });
+    });
+    return { seedRooms, afterStays };
+  }
+
+  els.applyCheckpointBtn.addEventListener('click', () => {
+    const day = state.checkpointDay;
+    const { seedRooms, afterStays } = splitStaysAtCheckpoint(day);
+
+    // Only pin the specific after-portion that was actually present at the
+    // checkpoint and got dragged — not any unrelated later stay the same
+    // person might also have.
+    const checkpointNames = new Set(state.checkpointSnapshot.filter(s => s.name).map(s => s.name));
+    const regenPreferences = {};
+    Object.keys(state.checkpointOverrides).forEach(name => {
+      if (checkpointNames.has(name)) regenPreferences[name] = state.checkpointOverrides[name];
+    });
+
+    const result = assignStays(afterStays, regenPreferences, seedRooms);
+    state.rooms = result.rooms;
+    state.unassigned = result.unassigned;
+    state.unhonoredPrefs = result.unhonoredPrefs;
+    state.basicSoloFallbacks = result.basicSoloFallbacks;
+    state.capacityConsolidations = result.capacityConsolidations;
+    state.midTurnMoves = result.midTurnMoves;
+    state.displacements = result.displacements;
+    state.soloSwaps = result.soloSwaps;
+
+    state.checkpointDay = null;
+    state.checkpointOverrides = {};
+    state.checkpointSnapshot = [];
+    els.checkpointEditorWrap.style.display = 'none';
+
+    renderResults();
+    renderAlgorithmWarnings();
+    showDragMessage(`Replanned from day ${day} onward.`, 'success');
+  });
+
+  // ---------------------------------------------------------------------
+  // Export
+  // ---------------------------------------------------------------------
+  // ---------------------------------------------------------------------
+  // Cabin plan export — matches the ship's own cabin-plan spreadsheet
+  // format exactly (fonts, fills, borders, layout), and keeps a running,
+  // locally-saved history: every time the actual occupancy differs from
+  // the last download, a new dated sheet is added rather than overwritten.
+  // ---------------------------------------------------------------------
+  const TLF_MAP = {
+    '7016': 4949, '7112': 4966, '7113': 4965, '7114': 4960, '7115': 4955,
+    '7116': 4954, '7610': 4981, '7613': 4984, '2604': 4933, '2605': 4935, '2702': 4956
+  };
+  const HISTORY_KEY = 'berth_cabin_plan_history_v1';
+  const FILL_ORANGE = 'FFF4B183';
+  const FILL_BLUE = 'FFBDD7EE';
+
+  function loadPlanHistory(){
+    try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); }
+    catch (err) { console.error('Could not read saved plan history', err); return []; }
+  }
+  function savePlanHistory(history){
+    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); }
+    catch (err) { console.error('Could not save plan history', err); }
+  }
+
+  function computeSnapshot(day){
+    // One entry per bed, in room order, exactly as the template expects:
+    // two consecutive rows per cabin.
+    return state.roomIds.flatMap(roomId => {
+      const room = state.rooms.find(r => r.id === roomId);
+      const beds = room ? room.beds : [[], []];
+      return beds.map(bed => {
+        const occ = (bed || []).find(b => day >= b.start && day <= b.end);
+        return { roomId, name: occ ? occ.name : '', position: occ ? occ.position : '' };
+      });
+    });
+  }
+
+  // Finds every day the overall cabin lineup actually changes anywhere
+  // (someone signs on, off, or swaps), and returns one snapshot per
+  // resulting stretch — so a whole month's worth of turnover becomes a
+  // handful of dated sheets instead of one static picture.
+  function computeAllPermutations(){
+    if (!state.dayNumbers.length) return [];
+    const firstDay = state.dayNumbers[0];
+    const lastDay = state.dayNumbers[state.dayNumbers.length - 1];
+
+    const boundaries = new Set([firstDay]);
+    state.rooms.forEach(room => {
+      room.beds.forEach(bed => {
+        bed.forEach(b => {
+          boundaries.add(Math.max(firstDay, b.start));
+          if (b.end + 1 <= lastDay) boundaries.add(b.end + 1);
+        });
+      });
+    });
+    const sortedBoundaries = [...boundaries].filter(d => d >= firstDay && d <= lastDay).sort((a,b) => a - b);
+
+    const anchor = els.scheduleStartDate.value ? new Date(els.scheduleStartDate.value + 'T00:00:00') : null;
+
+    const permutations = [];
+    sortedBoundaries.forEach(day => {
+      const rows = computeSnapshot(day);
+      const prev = permutations[permutations.length - 1];
+      if (prev && snapshotsEqual(prev.rows, rows)) return; // no real change here, skip
+      let dateISO, sheetLabel;
+      if (anchor){
+        const d = new Date(anchor);
+        d.setDate(d.getDate() + (day - firstDay));
+        dateISO = d.toISOString();
+        sheetLabel = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-');
+      } else {
+        dateISO = new Date().toISOString();
+        sheetLabel = `Day-${day}`;
+      }
+      permutations.push({ day, dateISO, sheetLabel, rows });
+    });
+    return permutations;
+  }
+
+  function snapshotsEqual(a, b){
+    if (!a || !b || a.length !== b.length) return false;
+    return a.every((row, i) => row.roomId === b[i].roomId && row.name === b[i].name && row.position === b[i].position);
+  }
+
+  function sanitizeSheetName(name){
+    return name.replace(/[:\\/?*\[\]]/g, '-').slice(0, 31);
+  }
+
+  function uniqueSheetName(baseName, existingNames){
+    let name = sanitizeSheetName(baseName);
+    let n = 2;
+    while (existingNames.includes(name)){
+      name = sanitizeSheetName(`${baseName} (${n})`);
+      n++;
+    }
+    return name;
+  }
+
+  function updateHistoryInfo(){
+    const history = loadPlanHistory();
+    els.historyInfo.textContent = history.length
+      ? `${history.length} dated sheet${history.length === 1 ? '' : 's'} saved on this device`
+      : 'No saved sheets yet on this device';
+  }
+
+  async function buildStyledWorkbook(history){
+    const wb = new ExcelJS.Workbook();
+    const MEDIUM = { style: 'medium' };
+    const THIN = { style: 'thin' };
+
+    history.forEach(entry => {
+      const ws = wb.addWorksheet(entry.sheetName, { views: [{ showGridLines: false }] });
+      ws.getColumn(1).width = 5.29;
+      ws.getColumn(2).width = 14.71;
+      ws.getColumn(3).width = 11.57;
+      ws.getColumn(4).width = 26.43;
+      ws.getColumn(5).width = 64.86;
+
+      // Title
+      ws.mergeCells('B2:E3');
+      const titleCell = ws.getCell('B2');
+      titleCell.value = entry.title;
+      titleCell.font = { name: 'Calibri', bold: true, size: 28 };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      titleCell.border = { left: MEDIUM, right: MEDIUM, top: MEDIUM, bottom: MEDIUM };
+      ws.getRow(2).height = 15;
+      ws.getRow(3).height = 15.75;
+
+      // Header
+      const headers = ['Cabin:', 'TLF:', 'Department:', 'Name:'];
+      ['B','C','D','E'].forEach((col, i) => {
+        const cell = ws.getCell(`${col}4`);
+        cell.value = headers[i];
+        cell.font = { name: 'Calibri', bold: true, size: 24 };
+        cell.alignment = { horizontal: 'center' };
+        cell.border = col === 'C'
+          ? { top: MEDIUM, bottom: MEDIUM }
+          : { left: MEDIUM, right: MEDIUM, top: MEDIUM, bottom: MEDIUM };
+      });
+      ws.getRow(4).height = 36;
+
+      // Data rows — two per cabin, alternating fill by cabin index
+      let r = 5;
+      const lastRow = 4 + entry.rows.length;
+      entry.rows.forEach((rowData, idx) => {
+        const cabinIdx = Math.floor(idx / 2);
+        const fillColor = cabinIdx % 2 === 0 ? FILL_ORANGE : FILL_BLUE;
+        const values = [rowData.roomId, TLF_MAP[rowData.roomId] || '', rowData.position, rowData.name];
+        ['B','C','D','E'].forEach((col, i) => {
+          const cell = ws.getCell(`${col}${r}`);
+          cell.value = values[i];
+          cell.font = { name: 'Calibri', bold: true, size: 24 };
+          cell.alignment = { horizontal: 'center' };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fillColor } };
+          const top = r === 5 ? MEDIUM : THIN;
+          const bottom = r === lastRow ? MEDIUM : THIN;
+          cell.border = col === 'C'
+            ? { top, bottom }
+            : { left: MEDIUM, right: MEDIUM, top, bottom };
+        });
+        ws.getRow(r).height = 36;
+        r++;
+      });
+
+      // Footer
+      ws.mergeCells(`B${r}:E${r}`);
+      let cell = ws.getCell(`B${r}`);
+      cell.value = 'SIGNING OFF CREW';
+      cell.font = { name: 'Calibri', bold: true, size: 24, color: { argb: 'FFFF0000' } };
+      cell.alignment = { horizontal: 'center' };
+      cell.border = { left: MEDIUM, right: MEDIUM, top: MEDIUM };
+      ws.getRow(r).height = 31.5;
+      r++;
+
+      ws.mergeCells(`B${r}:E${r}`);
+      cell = ws.getCell(`B${r}`);
+      cell.value = 'REMEMBER TO DELIVER CLEANING LIST IN THE OFFICE';
+      cell.font = { name: 'Calibri', bold: true, size: 24, color: { argb: 'FFFF0000' } };
+      cell.alignment = { horizontal: 'center' };
+      cell.border = { left: MEDIUM, right: MEDIUM, bottom: MEDIUM };
+      ws.getRow(r).height = 32.25;
+      r++;
+
+      ws.mergeCells(`B${r}:E${r}`);
+      cell = ws.getCell(`B${r}`);
+      cell.value = new Date(entry.dateISO);
+      cell.font = { name: 'Calibri', bold: true, size: 25 };
+      cell.alignment = { horizontal: 'center', vertical: 'top' };
+      cell.numFmt = 'mm-dd-yy';
+      cell.border = { left: MEDIUM, right: MEDIUM, top: MEDIUM, bottom: MEDIUM };
+      ws.getRow(r).height = 36;
+    });
+
+    return wb;
+  }
+
+  function updatePermutationPreview(){
+    if (!state.rooms.length){ els.permutationPreview.textContent = ''; return; }
+    const perms = computeAllPermutations();
+    if (perms.length === 0){
+      els.permutationPreview.textContent = '';
+      return;
+    }
+    const labels = perms.map(p => p.sheetLabel);
+    els.permutationPreview.textContent = `This download will include ${perms.length} dated sheet${perms.length === 1 ? '' : 's'} for this plan: ${labels.join(', ')}.`;
+  }
+  els.scheduleStartDate.addEventListener('change', updatePermutationPreview);
+  els.planTitle.addEventListener('input', updatePermutationPreview);
+
+  els.exportBtn.addEventListener('click', async () => {
+    const title = els.planTitle.value.trim() || 'Cabin Plan';
+    const permutations = computeAllPermutations();
+
+    if (permutations.length === 0){
+      alert('Nothing to export yet — assign rooms first.');
+      return;
+    }
+
+    const history = loadPlanHistory();
+    let addedCount = 0;
+    permutations.forEach(perm => {
+      const alreadyRecorded = history.some(h => snapshotsEqual(h.rows, perm.rows));
+      if (alreadyRecorded) return;
+      const sheetName = uniqueSheetName(perm.sheetLabel, history.map(h => h.sheetName));
+      history.push({ sheetName, title, dateISO: perm.dateISO, day: perm.day, rows: perm.rows });
+      addedCount++;
+    });
+    if (addedCount > 0) savePlanHistory(history);
+
+    els.exportBtn.disabled = true;
+    els.exportBtn.textContent = 'Building workbook…';
+    try {
+      const wb = await buildStyledWorkbook(loadPlanHistory());
+      const buffer = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'cabin-plan.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed', err);
+      alert('Could not build the workbook: ' + err.message);
+    }
+    els.exportBtn.disabled = false;
+    els.exportBtn.textContent = 'Download Cabin Plan (.xlsx)';
+    updateHistoryInfo();
+  });
+
+  els.clearHistoryBtn.addEventListener('click', () => {
+    if (!confirm('Remove all saved dated sheets from this device? This cannot be undone.')) return;
+    localStorage.removeItem(HISTORY_KEY);
+    updateHistoryInfo();
+  });
+
+  updateHistoryInfo();
+
+})();
+</script>
+</body>
+</html>
