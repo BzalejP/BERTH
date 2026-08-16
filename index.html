@@ -587,25 +587,59 @@
     } catch (err) { console.error('Could not read saved crew roster', err); return false; }
   }
 
+  function findRosterHeaderRow(rows){
+    // Same trap as the schedule's header detection, different shape: don't
+    // just grab row 0 — some exports have a blank spacer row first. Scan
+    // for whichever of the first few rows has the most cells that look
+    // like actual column labels (name/number/gender/position).
+    let bestIdx = 0, bestCount = -1;
+    const scanLimit = Math.min(rows.length, 6);
+    for (let i = 0; i < scanLimit; i++){
+      let count = 0;
+      rows[i].forEach(cell => {
+        const txt = String(cell).trim();
+        if (!txt) return;
+        if (/name/i.test(txt)) count++;
+        else if (/crew\s*(no\.?|number|#|id)|^no\.?$|^number$|^#$|^id$|badge/i.test(txt)) count++;
+        else if (/gender|sex/i.test(txt)) count++;
+        else if (/position|rank|role|title/i.test(txt)) count++;
+      });
+      if (count > bestCount){ bestCount = count; bestIdx = i; }
+    }
+    return bestIdx;
+  }
+
   function parseRosterSheet(sheet){
     const rows = sheetToRows(sheet);
-    const header = rows[0] || [];
+    const headerIdx = findRosterHeaderRow(rows);
+    const header = rows[headerIdx] || [];
     let nameCol = -1, numCol = -1, genderCol = -1, posCol = -1;
     header.forEach((cell, col) => {
       const txt = String(cell).trim();
       if (nameCol === -1 && /name/i.test(txt)) nameCol = col;
-      if (numCol === -1 && /crew\s*(no\.?|number|#|id)|badge/i.test(txt)) numCol = col;
+      if (numCol === -1 && /crew\s*(no\.?|number|#|id)|^no\.?$|^number$|^#$|^id$|badge/i.test(txt)) numCol = col;
       if (genderCol === -1 && /gender|sex/i.test(txt)) genderCol = col;
       if (posCol === -1 && /position|rank|role|title/i.test(txt)) posCol = col;
     });
-    if (nameCol === -1) nameCol = 0;
-    if (numCol === -1) numCol = 1;
-    if (posCol === -1) posCol = 2;
-    if (genderCol === -1) genderCol = 3;
+    // Fill in whatever wasn't found via header text, from whichever column
+    // indices are still free — never reuse a column another field already
+    // claimed via regex.
+    const claimed = new Set([nameCol, numCol, genderCol, posCol].filter(c => c !== -1));
+    function nextFree(preferred){
+      if (preferred !== -1) return preferred;
+      let c = 0;
+      while (claimed.has(c)) c++;
+      claimed.add(c);
+      return c;
+    }
+    nameCol = nextFree(nameCol);
+    numCol = nextFree(numCol);
+    posCol = nextFree(posCol);
+    genderCol = nextFree(genderCol);
 
     const byNumber = {}, byName = {};
     let count = 0;
-    for (let r = 1; r < rows.length; r++){
+    for (let r = headerIdx + 1; r < rows.length; r++){
       const row = rows[r];
       const name = String(row[nameCol] || '').trim();
       const crewNumber = String(row[numCol] || '').trim();
@@ -683,15 +717,22 @@
 
   function findHeaderRow(rows){
     // The header row is whichever of the first several rows has the most
-    // cells that parse as a day-of-month integer (1-31).
+    // DISTINCT cells that parse as a day-of-month integer (1-31). Scoring
+    // by raw match count (not uniqueness) is a trap: a crew member who
+    // worked most of the month has many cells that are literally "1" (the
+    // onboard-day marker), and that can easily outnumber the header's 31
+    // once-each day numbers. Uniqueness is what actually distinguishes a
+    // real "1, 2, 3, ... 31" header from a data row that's mostly "1"s.
     let bestIdx = 0, bestCount = -1;
     const scanLimit = Math.min(rows.length, 8);
     for (let i = 0; i < scanLimit; i++){
-      const count = rows[i].filter(c => {
-        const n = parseInt(String(c).trim(), 10);
-        return Number.isInteger(n) && n >= 1 && n <= 31 && String(n) === String(c).trim();
-      }).length;
-      if (count > bestCount){ bestCount = count; bestIdx = i; }
+      const seen = new Set();
+      rows[i].forEach(c => {
+        const txt = String(c).trim();
+        const n = parseInt(txt, 10);
+        if (Number.isInteger(n) && n >= 1 && n <= 31 && String(n) === txt) seen.add(n);
+      });
+      if (seen.size > bestCount){ bestCount = seen.size; bestIdx = i; }
     }
     return bestIdx;
   }
@@ -710,21 +751,29 @@
         dayCols.push({ col, day: n });
       } else if (nameCol === -1 && /name/i.test(txt)){
         nameCol = col;
-      } else if (numCol === -1 && /crew\s*(no\.?|number|#|id)|badge/i.test(txt)){
+      } else if (numCol === -1 && /crew\s*(no\.?|number|#|id)|^no\.?$|^number$|^#$|^id$|badge/i.test(txt)){
         numCol = col;
       } else if (posCol === -1 && /position|rank|role|title/i.test(txt)){
         posCol = col;
       }
     });
-    // Fallback: assume first two non-day columns are name, position — but
-    // only if neither a name nor a crew-number column was explicitly found.
-    if (nameCol === -1 && numCol === -1 || posCol === -1){
+    // Fill in whatever wasn't found via header text, from whichever
+    // non-day column indices are still free — never reuse a column
+    // another field already claimed via regex.
+    if (nameCol === -1 || numCol === -1 || posCol === -1){
       const nonDayCols = [];
       for (let c = 0; c < header.length; c++){
         if (!dayCols.find(d => d.col === c)) nonDayCols.push(c);
       }
-      if (nameCol === -1 && numCol === -1) nameCol = nonDayCols[0] !== undefined ? nonDayCols[0] : 0;
-      if (posCol === -1) posCol = nonDayCols[1] !== undefined ? nonDayCols[1] : 1;
+      const claimed = new Set([nameCol, numCol, posCol].filter(c => c !== -1));
+      function nextFreeCol(){
+        for (const c of nonDayCols){ if (!claimed.has(c)){ claimed.add(c); return c; } }
+        return 0;
+      }
+      // Only invent a name column if neither name nor crew-number was found
+      // (a crew-number-only schedule shouldn't get a fake name column).
+      if (nameCol === -1 && numCol === -1) nameCol = nextFreeCol();
+      if (posCol === -1) posCol = nextFreeCol();
     }
     dayCols.sort((a,b) => a.day - b.day);
 
@@ -734,18 +783,25 @@
     for (let r = headerIdx + 1; r < rows.length; r++){
       const row = rows[r];
       let name = '', crewNumber = '';
-      if (nameCol !== -1){
-        name = String(row[nameCol] || '').trim();
-      } else if (numCol !== -1){
+      if (numCol !== -1){
         crewNumber = String(row[numCol] || '').trim();
-        if (!crewNumber) continue;
+      }
+      if (crewNumber){
+        // Crew number is the reliable link — prefer the roster's name over
+        // whatever's in the schedule's own name field, if it has one,
+        // since schedule exports can silently truncate long names.
         const rosterEntry = state.roster.byNumber[crewNumber];
         if (rosterEntry && rosterEntry.name){
           name = rosterEntry.name;
-        } else {
+        } else if (nameCol !== -1){
+          name = String(row[nameCol] || '').trim();
+        }
+        if (!name){
           name = `Crew #${crewNumber}`;
           unresolvedCrewNumbers.push(crewNumber);
         }
+      } else if (nameCol !== -1){
+        name = String(row[nameCol] || '').trim();
       }
       if (!name) continue;
       let position = String(row[posCol] || '').trim();
