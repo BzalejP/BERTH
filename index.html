@@ -438,6 +438,9 @@
     </div>
     <div class="legend" id="legendHolder"></div>
     <div class="room-cards" id="roomCards"></div>
+    <div style="margin-top:12px;">
+      <button class="btn secondary" id="undoDragBtn" disabled>↺ Erase Last Change</button>
+    </div>
     <div class="drag-message" id="dragMessage"></div>
 
     <div class="checkpoint-block">
@@ -463,6 +466,7 @@
         <div class="drag-message" id="checkpointDragMessage"></div>
         <div style="margin-top:16px; display:flex; gap:12px; flex-wrap:wrap;">
           <button class="btn" id="applyCheckpointBtn">Apply &amp; replan from day <span id="checkpointDayLabel2"></span></button>
+          <button class="btn secondary" id="undoCheckpointBtn" disabled>↺ Erase Last Change</button>
           <button class="btn secondary" id="cancelCheckpointBtn">Cancel</button>
         </div>
       </div>
@@ -527,6 +531,8 @@
     checkpointDay: null,
     checkpointSnapshot: [],   // [{roomId, bedIdx, name, position, gender, isBasic}] for occupied slots on that day
     checkpointOverrides: {},  // name -> desired roomId for the checkpoint day onward
+    roomsHistory: [],         // undo stack for manual drag-and-drop in the main results editor
+    checkpointHistory: [],    // undo stack for manual drags within the checkpoint editor
   };
 
   const els = {
@@ -562,6 +568,7 @@
     legendHolder: document.getElementById('legendHolder'),
     roomCards: document.getElementById('roomCards'),
     dragMessage: document.getElementById('dragMessage'),
+    undoDragBtn: document.getElementById('undoDragBtn'),
     checkpointDay: document.getElementById('checkpointDay'),
     loadCheckpointBtn: document.getElementById('loadCheckpointBtn'),
     checkpointEditorWrap: document.getElementById('checkpointEditorWrap'),
@@ -571,6 +578,7 @@
     checkpointPlaceholder: document.getElementById('checkpointPlaceholder'),
     placeholderSlots: document.getElementById('placeholderSlots'),
     checkpointDragMessage: document.getElementById('checkpointDragMessage'),
+    undoCheckpointBtn: document.getElementById('undoCheckpointBtn'),
     applyCheckpointBtn: document.getElementById('applyCheckpointBtn'),
     cancelCheckpointBtn: document.getElementById('cancelCheckpointBtn'),
     exportBtn: document.getElementById('exportBtn'),
@@ -1721,6 +1729,7 @@
   }
 
   function runAssignment(){
+    state.roomsHistory = [];
     const bedsPerRoom = state.bedsPerRoom;
     let seedRooms = null;
     let staysToPlace = state.stays;
@@ -1786,9 +1795,12 @@
     runAssignment();
     renderResults();
     renderAlgorithmWarnings();
+    updateUndoButtonState();
     els.resultsPanel.style.display = 'block';
     els.resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
+
+  els.undoDragBtn.addEventListener('click', () => undoLastRoomChange());
 
   // ---------------------------------------------------------------------
   // Results rendering
@@ -1938,6 +1950,24 @@
     showDragMessage._t = setTimeout(() => { els.dragMessage.textContent = ''; els.dragMessage.className = 'drag-message'; }, 3500);
   }
 
+  const ROOMS_HISTORY_CAP = 20;
+  function pushRoomsHistory(){
+    state.roomsHistory.push(JSON.parse(JSON.stringify(state.rooms)));
+    if (state.roomsHistory.length > ROOMS_HISTORY_CAP) state.roomsHistory.shift();
+    updateUndoButtonState();
+  }
+  function undoLastRoomChange(){
+    if (!state.roomsHistory.length) return;
+    state.rooms = state.roomsHistory.pop();
+    renderResults();
+    updateUndoButtonState();
+    showDragMessage('Last change erased.', 'success');
+  }
+  function updateUndoButtonState(){
+    if (!els.undoDragBtn) return;
+    els.undoDragBtn.disabled = state.roomsHistory.length === 0;
+  }
+
   function positionGhost(x, y){
     if (dragState && dragState.ghost){
       dragState.ghost.style.left = x + 'px';
@@ -1988,6 +2018,7 @@
           const sourceBed = sourceRoom.beds[dragState.sourceBedIdx];
           const idx = sourceBed.findIndex(b => b.name === dragState.name && b.start === dragState.start && b.end === dragState.end);
           if (idx !== -1){
+            pushRoomsHistory();
             const [booking] = sourceBed.splice(idx, 1);
             const targetRoom = state.rooms.find(r => r.id === targetRoomId);
             targetRoom.beds[bedIdx].push(booking);
@@ -2142,6 +2173,24 @@
     cpShowMessage._t = setTimeout(() => { els.checkpointDragMessage.textContent = ''; els.checkpointDragMessage.className = 'drag-message'; }, 3500);
   }
 
+  const CP_HISTORY_CAP = 20;
+  function pushCheckpointHistory(){
+    state.checkpointHistory.push(JSON.parse(JSON.stringify(state.checkpointOverrides)));
+    if (state.checkpointHistory.length > CP_HISTORY_CAP) state.checkpointHistory.shift();
+    updateCpUndoButtonState();
+  }
+  function undoLastCheckpointChange(){
+    if (!state.checkpointHistory.length) return;
+    state.checkpointOverrides = state.checkpointHistory.pop();
+    renderCheckpointEditor();
+    updateCpUndoButtonState();
+    cpShowMessage('Last change erased.', 'success');
+  }
+  function updateCpUndoButtonState(){
+    if (!els.undoCheckpointBtn) return;
+    els.undoCheckpointBtn.disabled = state.checkpointHistory.length === 0;
+  }
+
   function cpOnMove(ev){
     const p = ev.touches ? ev.touches[0] : ev;
     if (cpDragState && cpDragState.ghost){
@@ -2162,12 +2211,14 @@
 
     if (target && target.id !== cpDragState.currentRoom){
       if (target.kind === 'placeholder'){
+        pushCheckpointHistory();
         state.checkpointOverrides[cpDragState.name] = CP_PLACEHOLDER_ID;
         renderCheckpointEditor();
         cpShowMessage(`${cpDragState.name} parked in the placeholder — drag them into a room before applying.`, 'success');
       } else if (!cpRoomHasSpace(target.id, cpDragState.gender, cpDragState.name)){
         cpShowMessage(`Can't put ${cpDragState.name} there — gender mismatch or the room's already full.`, 'error');
       } else {
+        pushCheckpointHistory();
         state.checkpointOverrides[cpDragState.name] = target.id;
         renderCheckpointEditor();
         cpShowMessage(`${cpDragState.name} will move to Room ${target.id} from day ${state.checkpointDay} onward.`, 'success');
@@ -2206,19 +2257,24 @@
     }
     state.checkpointDay = day;
     state.checkpointOverrides = {};
+    state.checkpointHistory = [];
     state.checkpointSnapshot = computeCheckpointSnapshot(day);
     els.checkpointDayLabel.textContent = day;
     els.checkpointDayLabel2.textContent = day;
     els.checkpointEditorWrap.style.display = 'block';
     renderCheckpointEditor();
+    updateCpUndoButtonState();
   });
 
   els.cancelCheckpointBtn.addEventListener('click', () => {
     state.checkpointDay = null;
     state.checkpointOverrides = {};
+    state.checkpointHistory = [];
     state.checkpointSnapshot = [];
     els.checkpointEditorWrap.style.display = 'none';
   });
+
+  els.undoCheckpointBtn.addEventListener('click', () => undoLastCheckpointChange());
 
   function splitStaysAtCheckpoint(day){
     // Rooms the user locked before this edit stay locked for anyone the
@@ -2290,10 +2346,13 @@
     state.checkpointDay = null;
     state.checkpointOverrides = {};
     state.checkpointSnapshot = [];
+    state.checkpointHistory = [];
+    state.roomsHistory = [];
     els.checkpointEditorWrap.style.display = 'none';
 
     renderResults();
     renderAlgorithmWarnings();
+    updateUndoButtonState();
     showDragMessage(`Replanned from day ${day} onward.`, 'success');
   });
 
