@@ -304,12 +304,12 @@
 
   <div class="panel">
     <h2>01 — Crew Roster</h2>
-    <p class="sub">Name, crew number, and declared gender for everyone — upload once, it's remembered on this device for every future schedule you import. Re-upload any time crew changes.</p>
+    <p class="sub">Your full crew database — name, crew number, position, and declared gender for everyone. Upload once, it's remembered on this device for every future schedule you import. Re-upload any time crew changes.</p>
     <div class="upload-zone" id="rosterDropZone">
       <input type="file" id="rosterFileInput" accept=".xlsx,.xls">
       <div class="upload-icon">⇪</div>
       <div class="upload-label">Drop the crew roster here, or click to browse</div>
-      <div class="upload-hint">.xlsx / .xls — columns: Name, Crew Number, Gender</div>
+      <div class="upload-hint">.xlsx / .xls — columns: Name, Crew Number, Position, Gender</div>
       <div id="rosterChipHolder"></div>
     </div>
     <div id="rosterSummary"></div>
@@ -317,7 +317,7 @@
 
   <div class="panel">
     <h2>02 — Import Schedule</h2>
-    <p class="sub">The monthly schedule itself — crew number, position, and day-by-day status. No names needed here; names come from the Crew Roster above.</p>
+    <p class="sub">The monthly schedule itself — crew number, position onboard for this turn, and day-by-day status. No names or genders needed here; those come from the Crew Roster above. If a row leaves position blank, the crew member's roster position is used instead.</p>
     <div class="upload-zone" id="dropZone">
       <input type="file" id="fileInput" accept=".xlsx,.xls">
       <div class="upload-icon">⇪</div>
@@ -590,16 +590,18 @@
   function parseRosterSheet(sheet){
     const rows = sheetToRows(sheet);
     const header = rows[0] || [];
-    let nameCol = -1, numCol = -1, genderCol = -1;
+    let nameCol = -1, numCol = -1, genderCol = -1, posCol = -1;
     header.forEach((cell, col) => {
       const txt = String(cell).trim();
       if (nameCol === -1 && /name/i.test(txt)) nameCol = col;
       if (numCol === -1 && /crew\s*(no\.?|number|#|id)|badge/i.test(txt)) numCol = col;
       if (genderCol === -1 && /gender|sex/i.test(txt)) genderCol = col;
+      if (posCol === -1 && /position|rank|role|title/i.test(txt)) posCol = col;
     });
     if (nameCol === -1) nameCol = 0;
     if (numCol === -1) numCol = 1;
-    if (genderCol === -1) genderCol = 2;
+    if (posCol === -1) posCol = 2;
+    if (genderCol === -1) genderCol = 3;
 
     const byNumber = {}, byName = {};
     let count = 0;
@@ -608,9 +610,10 @@
       const name = String(row[nameCol] || '').trim();
       const crewNumber = String(row[numCol] || '').trim();
       const gender = String(row[genderCol] || '').trim();
+      const position = String(row[posCol] || '').trim();
       if (!name && !crewNumber) continue;
-      if (crewNumber) byNumber[crewNumber] = { name, gender };
-      if (name && gender) byName[normalizeName(name)] = gender;
+      if (crewNumber) byNumber[crewNumber] = { name, gender, position };
+      if (name) byName[normalizeName(name)] = { gender, position };
       count++;
     }
     return { byNumber, byName, count };
@@ -745,7 +748,13 @@
         }
       }
       if (!name) continue;
-      const position = String(row[posCol] || '').trim();
+      let position = String(row[posCol] || '').trim();
+      if (!position){
+        // Schedule row didn't specify a position for this turn — fall back
+        // to the crew member's position on record in the roster, if any.
+        const rosterEntry = crewNumber ? state.roster.byNumber[crewNumber] : state.roster.byName[normalizeName(name)];
+        if (rosterEntry && rosterEntry.position) position = rosterEntry.position;
+      }
       const dayStatus = {};
       dayCols.forEach(({col, day}) => {
         let raw = String(row[col] || '').trim().toUpperCase();
@@ -818,7 +827,7 @@
     if (curStart !== null) stays.push([curStart, prevDay]);
 
     const gender = (person.crewNumber && state.roster.byNumber[person.crewNumber] && state.roster.byNumber[person.crewNumber].gender)
-      || state.roster.byName[normalizeName(person.name)]
+      || (state.roster.byName[normalizeName(person.name)] && state.roster.byName[normalizeName(person.name)].gender)
       || genderMap[normalizeName(person.name)]
       || null;
     return stays.map(([start, end]) => ({
