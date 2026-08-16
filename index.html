@@ -2066,11 +2066,12 @@
     const day = state.checkpointDay;
     const { seedRooms, afterStays } = splitStaysAtCheckpoint(day);
 
-    // Only pin the specific after-portion that was actually present at the
-    // checkpoint and got dragged — not any unrelated later stay the same
-    // person might also have.
+    // Start from the general Room Preferences (Section 06/07) so a replan
+    // never silently drops a room someone already requested — then let any
+    // checkpoint-editor drag for that same person override it, since that's
+    // a more deliberate, just-made correction for this exact day onward.
     const checkpointNames = new Set(state.checkpointSnapshot.filter(s => s.name).map(s => s.name));
-    const regenPreferences = {};
+    const regenPreferences = { ...state.preferences };
     Object.keys(state.checkpointOverrides).forEach(name => {
       if (checkpointNames.has(name)) regenPreferences[name] = state.checkpointOverrides[name];
     });
