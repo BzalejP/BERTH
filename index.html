@@ -2173,8 +2173,19 @@
   });
 
   function splitStaysAtCheckpoint(day){
-    const seedRooms = state.roomIds.map(id => ({ id, beds: Array.from({length: state.bedsPerRoom}, () => []) }));
+    // Rooms the user locked before this edit stay locked for anyone the
+    // checkpoint edit didn't specifically touch — the general algorithm
+    // filling in the rest of the month must still respect that standing
+    // rule. A person the user actually dragged during this edit still gets
+    // to overrule it: pins (which is what a checkpoint drag becomes below)
+    // are deliberately allowed to enter or leave a locked room, since
+    // that's a direct human correction, not the algorithm's own guess.
+    const seedRooms = state.roomIds.map(id => ({ id, beds: Array.from({length: state.bedsPerRoom}, () => []), locked: state.lockedRooms.has(id) }));
     const afterStays = [];
+    // Anyone continuing on in a room that's locked needs an explicit pin
+    // back into that same room — otherwise "locked" would accidentally
+    // evict them too, instead of just keeping other people out.
+    const impliedContinuations = {};
     state.rooms.forEach(room => {
       const seedRoom = seedRooms.find(r => r.id === room.id);
       room.beds.forEach((bed, bedIdx) => {
@@ -2183,26 +2194,29 @@
             seedRoom.beds[bedIdx].push({ ...b });
           } else if (b.start >= day){
             afterStays.push({ name: b.name, gender: b.gender, position: b.position, isBasic: b.isBasic, start: b.start, end: b.end });
+            if (state.lockedRooms.has(room.id)) impliedContinuations[b.name] = room.id;
           } else {
             seedRoom.beds[bedIdx].push({ ...b, end: day - 1 });
             afterStays.push({ name: b.name, gender: b.gender, position: b.position, isBasic: b.isBasic, start: day, end: b.end });
+            if (state.lockedRooms.has(room.id)) impliedContinuations[b.name] = room.id;
           }
         });
       });
     });
-    return { seedRooms, afterStays };
+    return { seedRooms, afterStays, impliedContinuations };
   }
 
   els.applyCheckpointBtn.addEventListener('click', () => {
     const day = state.checkpointDay;
-    const { seedRooms, afterStays } = splitStaysAtCheckpoint(day);
+    const { seedRooms, afterStays, impliedContinuations } = splitStaysAtCheckpoint(day);
 
-    // Start from the general Room Preferences (Section 06/07) so a replan
-    // never silently drops a room someone already requested — then let any
-    // checkpoint-editor drag for that same person override it, since that's
-    // a more deliberate, just-made correction for this exact day onward.
+    // Priority, lowest to highest: general Room Preferences first, then
+    // anyone whose room is locked gets auto-pinned to keep their own room
+    // (a lock always beats a mere standing preference), then finally any
+    // checkpoint-editor drag for that person overrules everything above —
+    // it's a direct human correction made just now, for this exact day.
     const checkpointNames = new Set(state.checkpointSnapshot.filter(s => s.name).map(s => s.name));
-    const regenPreferences = { ...state.preferences };
+    const regenPreferences = { ...state.preferences, ...impliedContinuations };
     Object.keys(state.checkpointOverrides).forEach(name => {
       if (checkpointNames.has(name)) regenPreferences[name] = state.checkpointOverrides[name];
     });
