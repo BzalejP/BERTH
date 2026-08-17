@@ -383,7 +383,7 @@
       <div class="rule-item"><span class="n">01</span><span><b>Excluded from rooming:</b> Restaurant &amp; Bar Supervisor, Sales &amp; Service Manager, Onboard Hotel Manager — these positions are left out of the pool entirely.</span></div>
       <div class="rule-item"><span class="n">02</span><span><b>Everyone gets a bed, no exceptions:</b> the top priority, above all else. If every other option runs out, the algorithm will pair Basic staff together, pair Basic with Seasonal, or even split one person's stint across more than one room mid-turn — always flagged clearly when it happens.</span></div>
       <div class="rule-item"><span class="n">03</span><span><b>No mixed-gender rooms:</b> a cabin never holds overlapping occupants of different declared genders — this is the one rule that's never relaxed, even as a last resort.</span></div>
-      <div class="rule-item"><span class="n">04</span><span><b>Otherwise, minimize disruption:</b> Hotel Staff Basic get a solo room when there's spare capacity, and everyone keeps one room for their whole stint whenever possible — these are strong preferences, just not stronger than rule 02.</span></div>
+      <div class="rule-item"><span class="n">04</span><span><b>Otherwise, minimize disruption:</b> Hotel Staff Basic get first claim on a solo room when there's spare capacity, Hotel Staff Seasonal get the same shot at whatever's left rather than being packed together while rooms sit empty, and everyone keeps one room for their whole stint whenever possible — these are strong preferences, just not stronger than rule 02.</span></div>
     </div>
   </div>
 
@@ -500,6 +500,7 @@
 
   const EXCLUDED_POSITIONS = ['restaurant & bar supervisor', 'sales & service manager', 'onboard hotel manager'];
   const BASIC_POSITION = 'hotel staff basic';
+  const SEASONAL_POSITION = 'hotel staff seasonal';
 
   const state = {
     workbook: null,
@@ -941,6 +942,9 @@
   function isBasicPosition(position){
     return position.trim().toLowerCase() === BASIC_POSITION;
   }
+  function isSeasonalPosition(position){
+    return position.trim().toLowerCase() === SEASONAL_POSITION;
+  }
 
   function buildStaysForPerson(person, genderMap){
     const days = state.dayNumbers;
@@ -1323,11 +1327,14 @@
     // occupied ONLY by Basic-position people — i.e. this looks like a room
     // that should stay solo for them. Ordinary (non-basic) placement skips
     // these; the basics' own "pair with each other" pass is allowed in.
-    function otherBedReservedForBasicSolo(room, bedIdx, start, end){
+    function isSoloEligible(b){
+      return b.isBasic || isSeasonalPosition(b.position);
+    }
+    function otherBedReservedForSolo(room, bedIdx, start, end){
       for (let i = 0; i < room.beds.length; i++){
         if (i === bedIdx) continue;
         const overlapping = room.beds[i].filter(b => overlaps(b.start, b.end, start, end));
-        if (overlapping.length > 0 && overlapping.every(b => b.isBasic)) return true;
+        if (overlapping.length > 0 && overlapping.every(isSoloEligible)) return true;
       }
       return false;
     }
@@ -1347,7 +1354,7 @@
           const bed = room.beds[bedIdx];
           if (!bedFree(bed, stay.start, stay.end)) continue;
           if (!otherBedsGenderOk(room, bedIdx, stay.start, stay.end, stay.gender)) continue;
-          if (!opts.preferBasicPartner && !opts.allowBasicSoloIntrusion && !stay.isBasic && otherBedReservedForBasicSolo(room, bedIdx, stay.start, stay.end)) continue;
+          if (!opts.preferBasicPartner && !opts.allowBasicSoloIntrusion && !stay.isBasic && otherBedReservedForSolo(room, bedIdx, stay.start, stay.end)) continue;
 
           let score = 0;
           if (otherBedHasOverlapSameGender(room, bedIdx, stay.start, stay.end, stay.gender, opts.preferBasicPartner)) score += 100;
@@ -1401,23 +1408,15 @@
       }
     });
 
-    // 1. Non-basic stays: sort by start asc, duration desc
-    const nonBasic = leftoverNonBasic.sort((a,b) => a.start - b.start || (b.end-b.start) - (a.end-a.start));
+    // 1. Solo-first pass: Hotel Staff Basic gets first claim on a fully
+    // empty room, then Hotel Staff Seasonal gets the same shot at whatever
+    // rooms are still completely empty — this spreads people across more
+    // of the available rooms instead of packing tightly and leaving some
+    // sitting unused for the whole stretch, as long as it doesn't cost
+    // anyone else a bed. Basic keeps priority since that's the
+    // longer-standing rule; Seasonal only gets what's left after Basic
+    // has already claimed theirs.
     const basicSoloFallbacks = [];
-    nonBasic.forEach(stay => {
-      let slot = bestSlotFor(stay, {});
-      if (!slot){
-        // Last resort: no room works without disturbing a solo Basic person
-        // — better than leaving someone with nowhere to sleep. Only ever
-        // reached once every other option has failed.
-        slot = bestSlotFor(stay, { allowBasicSoloIntrusion: true });
-        if (slot) basicSoloFallbacks.push({ stay, roomId: slot.room.id });
-      }
-      if (slot) bookStay(slot.room, slot.bedIdx, stay);
-      else unassigned.push(stay);
-    });
-
-    // 2. Basic stays — first pass: fully empty rooms only
     const basics = leftoverBasic.sort((a,b) => a.start - b.start || (b.end-b.start) - (a.end-a.start));
     const needsSharing = [];
     basics.forEach(stay => {
@@ -1428,7 +1427,37 @@
         needsSharing.push(stay);
       }
     });
-    // second pass: pair remaining basics with each other first, then anyone
+
+    const seasonalStays = leftoverNonBasic.filter(s => isSeasonalPosition(s.position)).sort((a,b) => a.start - b.start || (b.end-b.start) - (a.end-a.start));
+    const otherNonBasic = leftoverNonBasic.filter(s => !isSeasonalPosition(s.position));
+    const seasonalNeedsPlacement = [];
+    seasonalStays.forEach(stay => {
+      const emptyRoom = rooms.find(r => !r.locked && roomFullyEmptyFor(r, stay.start, stay.end));
+      if (emptyRoom){
+        bookStay(emptyRoom, 0, stay);
+      } else {
+        seasonalNeedsPlacement.push(stay);
+      }
+    });
+
+    // 2. General consolidation for everyone who didn't land a solo room:
+    // remaining Seasonal plus any other non-basic, non-seasonal stays
+    // (e.g. a Crew Visitor), sorted together by start day.
+    const nonBasic = seasonalNeedsPlacement.concat(otherNonBasic).sort((a,b) => a.start - b.start || (b.end-b.start) - (a.end-a.start));
+    nonBasic.forEach(stay => {
+      let slot = bestSlotFor(stay, {});
+      if (!slot){
+        // Last resort: no room works without disturbing someone's solo
+        // cabin — better than leaving someone with nowhere to sleep. Only
+        // ever reached once every other option has failed.
+        slot = bestSlotFor(stay, { allowBasicSoloIntrusion: true });
+        if (slot) basicSoloFallbacks.push({ stay, roomId: slot.room.id });
+      }
+      if (slot) bookStay(slot.room, slot.bedIdx, stay);
+      else unassigned.push(stay);
+    });
+
+    // Basic — second pass: pair remaining basics with each other first, then anyone
     needsSharing.forEach(stay => {
       let slot = bestSlotFor(stay, { preferBasicPartner: true });
       if (slot) bookStay(slot.room, slot.bedIdx, stay);
@@ -1437,26 +1466,27 @@
 
     // 3. Absolute last resort: nobody goes without a bed. For anyone still
     // unassigned, look for two rooms that are each solo-occupied by a
-    // Basic person of the same gender (as each other — not necessarily the
-    // stranded person's gender), merge those two Basics into one room
-    // together, and hand the now fully-vacated room to whoever's stranded.
-    function findFullySoloBasicRooms(){
+    // Basic or Seasonal person of the same gender (as each other — not
+    // necessarily the stranded person's gender), merge those two solo
+    // occupants into one room together, and hand the now fully-vacated
+    // room to whoever's stranded.
+    function findFullySoloRooms(){
       return rooms
         .map(room => {
           const names = new Set();
-          let allBasic = true, gender = null;
+          let allSoloEligible = true, gender = null;
           room.beds.forEach(bed => bed.forEach(b => {
             names.add(b.name);
-            if (!b.isBasic) allBasic = false;
+            if (!isSoloEligible(b)) allSoloEligible = false;
             gender = b.gender;
           }));
-          return { room, names, allBasic, gender, bookingCount: room.beds.reduce((n,b) => n + b.length, 0) };
+          return { room, names, allSoloEligible, gender, bookingCount: room.beds.reduce((n,b) => n + b.length, 0) };
         })
-        .filter(r => !r.room.locked && r.names.size === 1 && r.allBasic && r.bookingCount > 0);
+        .filter(r => !r.room.locked && r.names.size === 1 && r.allSoloEligible && r.bookingCount > 0);
     }
 
     function consolidateAndFree(){
-      const solos = findFullySoloBasicRooms();
+      const solos = findFullySoloRooms();
       const byGender = {};
       solos.forEach(s => { (byGender[s.gender] = byGender[s.gender] || []).push(s); });
       for (const gender in byGender){
@@ -1832,10 +1862,10 @@
       warnHtml += `<div class="warn-block"><b>${state.midTurnMoves.length} ${state.midTurnMoves.length === 1 ? 'stint was' : 'stints were'} split across more than one room mid-turn</b> — every other way to fit them ran out, so this was the only way to make sure nobody went without a bed.<ul>${state.midTurnMoves.map(m => `<li>${m.name}: ${m.segments.map(s => `Room ${s.roomId} (day ${s.start}–${s.end})`).join(' → ')}</li>`).join('')}</ul></div>`;
     }
     if (state.capacityConsolidations.length){
-      warnHtml += `<div class="warn-block"><b>${state.capacityConsolidations.length} ${state.capacityConsolidations.length === 1 ? 'room was' : 'rooms were'} freed up by merging two Basic staff of the same gender</b> — this only happens when someone would otherwise have no bed at all.<ul>${state.capacityConsolidations.map(c => `<li>${c.movedPerson} moved into Room ${c.intoRoomId} to free Room ${c.freedRoomId} for ${c.stay.name} (day ${c.stay.start}–${c.stay.end})</li>`).join('')}</ul></div>`;
+      warnHtml += `<div class="warn-block"><b>${state.capacityConsolidations.length} ${state.capacityConsolidations.length === 1 ? 'room was' : 'rooms were'} freed up by merging two solo occupants of the same gender</b> — this only happens when someone would otherwise have no bed at all.<ul>${state.capacityConsolidations.map(c => `<li>${c.movedPerson} moved into Room ${c.intoRoomId} to free Room ${c.freedRoomId} for ${c.stay.name} (day ${c.stay.start}–${c.stay.end})</li>`).join('')}</ul></div>`;
     }
     if (state.basicSoloFallbacks.length){
-      warnHtml += `<div class="warn-block"><b>${state.basicSoloFallbacks.length} ${state.basicSoloFallbacks.length === 1 ? 'person was' : 'people were'} paired into a Hotel Staff Basic's solo room as a last resort</b> — no other gender-compatible bed was free for their full stretch, so this was the only way to avoid leaving them unassigned.<ul>${state.basicSoloFallbacks.map(f => `<li>${f.stay.name} → Room ${f.roomId} (day ${f.stay.start}–${f.stay.end})</li>`).join('')}</ul></div>`;
+      warnHtml += `<div class="warn-block"><b>${state.basicSoloFallbacks.length} ${state.basicSoloFallbacks.length === 1 ? 'person was' : 'people were'} paired into someone else's solo cabin as a last resort</b> — no other gender-compatible bed was free for their full stretch, so this was the only way to avoid leaving them unassigned.<ul>${state.basicSoloFallbacks.map(f => `<li>${f.stay.name} → Room ${f.roomId} (day ${f.stay.start}–${f.stay.end})</li>`).join('')}</ul></div>`;
     }
     if (state.unhonoredPrefs.length){
       warnHtml += `<div class="warn-block"><b>${state.unhonoredPrefs.length} room preference(s) couldn't be honored</b> — the requested room wasn't free or would have mixed genders, so these were placed automatically instead.<ul>${state.unhonoredPrefs.map(u => `<li>${u.stay.name} → requested ${u.wantedRoomId} (day ${u.stay.start}–${u.stay.end})</li>`).join('')}</ul></div>`;
