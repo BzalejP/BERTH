@@ -950,7 +950,7 @@
     for (let i = 0; i < days.length; i++){
       const day = days[i];
       const status = person.dayStatus[day];
-      const onboard = status === '1' || status === '+';
+      const onboard = status !== 'V';
       if (onboard && curStart === null){
         curStart = day;
       }
