@@ -1492,7 +1492,14 @@
       for (const gender in byGender){
         const pair = byGender[gender];
         if (pair.length < 2) continue;
-        const [keep, vacate] = pair;
+        // A manually-placed solo occupant can still take on a roommate
+        // (that doesn't move them), but never gets vacated/relocated —
+        // find the first candidate that's safe to move, if any.
+        const isManual = s => s.room.beds.some(bed => bed.some(b => b.manual));
+        const vacateIdx = pair.findIndex(s => !isManual(s));
+        if (vacateIdx === -1) continue; // every solo here is a manual placement — leave them all alone
+        const keepIdx = pair.findIndex((s, i) => i !== vacateIdx);
+        const keep = pair[keepIdx], vacate = pair[vacateIdx];
         const keepEmptyBedIdx = keep.room.beds.findIndex(bed => bed.length === 0);
         const vacateBedIdx = vacate.room.beds.findIndex(bed => bed.length > 0);
         if (keepEmptyBedIdx === -1 || vacateBedIdx === -1) continue;
@@ -1583,6 +1590,7 @@
           const isInTargetBed = blockersInBed.length === 1;
           const blockerInfo = isInTargetBed ? blockersInBed[0] : otherBedBlockers[0];
           const blocker = blockerInfo.b;
+          if (blocker.manual) continue; // a direct human placement — never displaced, even as a last resort
           const blockerBedIdx = isInTargetBed ? bedIdx : blockerInfo.bedIdx;
           const blockerBed = room.beds[blockerBedIdx];
 
@@ -1723,6 +1731,7 @@
               if (i === j) continue;
               for (const b of [...room.beds[j]]){
                 if (!overlaps(a.start, a.end, b.start, b.end)) continue;
+                if (b.manual) continue; // a direct human placement — never relocated, even to improve solo coverage
                 const candidates = allSlotsForElsewhere(b, room);
                 for (const altSlot of candidates){
                   const before = soloBasicDayCount();
@@ -1758,6 +1767,32 @@
     return { rooms, unassigned, unhonoredPrefs, basicSoloFallbacks, capacityConsolidations, displacements, midTurnMoves, soloSwaps };
   }
 
+  function subtractCoveredRanges(originalStays, coveredRangesByName){
+    // For each original (unsplit) stay, remove whatever day-ranges are
+    // already spoken for by a seeded/manual booking for that same person
+    // — what's left is exactly what still needs a fresh placement. A
+    // simple "does this exact start/end already exist?" check isn't
+    // enough once a checkpoint has fragmented someone's stay into pieces
+    // that no longer match the original file-derived range at all.
+    const result = [];
+    originalStays.forEach(stay => {
+      const covered = coveredRangesByName.get(stay.name);
+      if (!covered || !covered.length){ result.push(stay); return; }
+      let segments = [[stay.start, stay.end]];
+      covered.forEach(([cStart, cEnd]) => {
+        const next = [];
+        segments.forEach(([s, e]) => {
+          if (cEnd < s || cStart > e){ next.push([s, e]); return; }
+          if (cStart > s) next.push([s, cStart - 1]);
+          if (cEnd < e) next.push([cEnd + 1, e]);
+        });
+        segments = next;
+      });
+      segments.forEach(([s, e]) => { if (s <= e) result.push({ ...stay, start: s, end: e }); });
+    });
+    return result;
+  }
+
   function runAssignment(){
     if (state.rooms.length){
       // Something was already generated (and possibly hand-edited) —
@@ -1769,48 +1804,70 @@
     let staysToPlace = state.stays;
     const lockSeedWarnings = [];
 
-    if (state.lockedRooms.size > 0){
-      const lockedBookingKeys = new Set();
+    const hasManualBookings = state.rooms.some(r => r.beds.some(bed => bed.some(b => b.manual)));
+
+    if (state.lockedRooms.size > 0 || hasManualBookings){
+      const coveredRangesByName = new Map();
+      const addCovered = (name, start, end) => {
+        if (!coveredRangesByName.has(name)) coveredRangesByName.set(name, []);
+        coveredRangesByName.get(name).push([start, end]);
+      };
       seedRooms = state.roomIds.map(id => {
         const isLocked = state.lockedRooms.has(id);
-        if (!isLocked) return { id, beds: Array.from({length: bedsPerRoom}, () => []), locked: false };
-
         const prevRoom = state.rooms.find(r => r.id === id);
-        if (prevRoom && prevRoom.beds.some(bed => bed.length > 0)){
-          // A plan already exists for this room — carry it forward exactly.
-          const beds = prevRoom.beds.map(bed => bed.map(b => {
-            lockedBookingKeys.add(b.name + '|' + b.start + '|' + b.end);
-            return { ...b };
-          }));
+
+        if (isLocked){
+          if (prevRoom && prevRoom.beds.some(bed => bed.length > 0)){
+            // A plan already exists for this room — carry it forward exactly.
+            const beds = prevRoom.beds.map(bed => bed.map(b => {
+              addCovered(b.name, b.start, b.end);
+              return { ...b };
+            }));
+            return { id, beds, locked: true };
+          }
+
+          // No prior plan for this room yet — seed it from anyone pinned to
+          // this room via Room Preferences instead, so a room can be locked
+          // and pre-filled before the very first generate.
+          const pinnedStays = state.stays.filter(s => state.preferences[s.name] === id);
+          const beds = Array.from({length: bedsPerRoom}, () => []);
+          pinnedStays.forEach(s => {
+            let placed = false;
+            for (let b = 0; b < beds.length && !placed; b++){
+              const bed = beds[b];
+              const free = !bed.some(x => overlaps(x.start, x.end, s.start, s.end));
+              if (!free) continue;
+              let genderOk = true;
+              for (let ob = 0; ob < beds.length; ob++){
+                if (ob === b) continue;
+                if (beds[ob].some(x => overlaps(x.start, x.end, s.start, s.end) && x.gender !== s.gender)) genderOk = false;
+              }
+              if (!genderOk) continue;
+              bed.push({ start: s.start, end: s.end, gender: s.gender, name: s.name, position: s.position, isBasic: s.isBasic });
+              addCovered(s.name, s.start, s.end);
+              placed = true;
+            }
+            if (!placed) lockSeedWarnings.push({ name: s.name, roomId: id });
+          });
           return { id, beds, locked: true };
         }
 
-        // No prior plan for this room yet — seed it from anyone pinned to
-        // this room via Room Preferences instead, so a room can be locked
-        // and pre-filled before the very first generate.
-        const pinnedStays = state.stays.filter(s => state.preferences[s.name] === id);
-        const beds = Array.from({length: bedsPerRoom}, () => []);
-        pinnedStays.forEach(s => {
-          let placed = false;
-          for (let b = 0; b < beds.length && !placed; b++){
-            const bed = beds[b];
-            const free = !bed.some(x => overlaps(x.start, x.end, s.start, s.end));
-            if (!free) continue;
-            let genderOk = true;
-            for (let ob = 0; ob < beds.length; ob++){
-              if (ob === b) continue;
-              if (beds[ob].some(x => overlaps(x.start, x.end, s.start, s.end) && x.gender !== s.gender)) genderOk = false;
-            }
-            if (!genderOk) continue;
-            bed.push({ start: s.start, end: s.end, gender: s.gender, name: s.name, position: s.position, isBasic: s.isBasic });
-            lockedBookingKeys.add(s.name + '|' + s.start + '|' + s.end);
-            placed = true;
-          }
-          if (!placed) lockSeedWarnings.push({ name: s.name, roomId: id });
-        });
-        return { id, beds, locked: true };
+        // Not locked — but anyone specifically hand-placed here (a drag,
+        // or an explicit checkpoint correction) still needs to survive
+        // this regenerate. Everyone else already in this room is free to
+        // be re-optimized, so only the manually-flagged bookings carry
+        // forward; the rest of the room's beds start empty again.
+        if (prevRoom){
+          const beds = prevRoom.beds.map(bed => bed.filter(b => b.manual).map(b => {
+            addCovered(b.name, b.start, b.end);
+            return { ...b };
+          }));
+          while (beds.length < bedsPerRoom) beds.push([]);
+          return { id, beds, locked: false };
+        }
+        return { id, beds: Array.from({length: bedsPerRoom}, () => []), locked: false };
       });
-      staysToPlace = state.stays.filter(s => !lockedBookingKeys.has(s.name + '|' + s.start + '|' + s.end));
+      staysToPlace = subtractCoveredRanges(state.stays, coveredRangesByName);
     }
 
     const result = assignStays(staysToPlace, state.preferences, seedRooms);
@@ -2067,6 +2124,7 @@
           if (idx !== -1){
             pushRoomsHistory();
             const [booking] = sourceBed.splice(idx, 1);
+            booking.manual = true; // a direct human placement — protected from a future full regenerate
             const targetRoom = state.rooms.find(r => r.id === targetRoomId);
             targetRoom.beds[bedIdx].push(booking);
             renderResults();
@@ -2375,8 +2433,12 @@
     // it's a direct human correction made just now, for this exact day.
     const checkpointNames = new Set(state.checkpointSnapshot.filter(s => s.name).map(s => s.name));
     const regenPreferences = { ...state.preferences, ...impliedContinuations };
+    const explicitlyOverridden = new Set();
     Object.keys(state.checkpointOverrides).forEach(name => {
-      if (checkpointNames.has(name)) regenPreferences[name] = state.checkpointOverrides[name];
+      if (checkpointNames.has(name)){
+        regenPreferences[name] = state.checkpointOverrides[name];
+        explicitlyOverridden.add(name);
+      }
     });
 
     const result = assignStays(afterStays, regenPreferences, seedRooms);
@@ -2389,6 +2451,15 @@
     state.midTurnMoves = result.midTurnMoves;
     state.displacements = result.displacements;
     state.soloSwaps = result.soloSwaps;
+
+    // Only the people the user actually dragged during this edit count as
+    // a direct human placement — the auto-continued majority stays free
+    // to be re-optimized by a later full regenerate.
+    if (explicitlyOverridden.size){
+      state.rooms.forEach(room => room.beds.forEach(bed => bed.forEach(b => {
+        if (explicitlyOverridden.has(b.name) && b.start >= day) b.manual = true;
+      })));
+    }
 
     state.checkpointDay = null;
     state.checkpointOverrides = {};
