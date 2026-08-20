@@ -123,11 +123,12 @@
     display:block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
     color: var(--ink-dim); margin-bottom: 8px; font-family:'IBM Plex Mono', monospace;
   }
-  .config-field input{
+  .config-field input, .config-field select{
     width: 100%; background: var(--panel2); border: 1px solid var(--border); border-radius: 3px;
     color: var(--ink); font-family:'IBM Plex Mono', monospace; font-size: 15px; padding: 9px 12px;
   }
-  .config-field input:focus{ outline: none; border-color: var(--brass-dim); }
+  .config-field select{ cursor: pointer; }
+  .config-field input:focus, .config-field select:focus{ outline: none; border-color: var(--brass-dim); }
 
   /* ---- Rules readout ---- */
   .rules-list{ display:flex; flex-direction:column; gap: 10px; }
@@ -493,6 +494,13 @@
           <input type="text" id="planTitle" value="Cabine Plan F &amp; B">
         </div>
         <div class="config-field">
+          <label for="dayNumberingMode">Number sheets by</label>
+          <select id="dayNumberingMode">
+            <option value="schedule" selected>Schedule day (1, 2, 3…)</option>
+            <option value="calendar">Calendar day of month</option>
+          </select>
+        </div>
+        <div class="config-field" id="startDateField" style="display:none;">
           <label for="scheduleStartDate">Calendar date for day 1</label>
           <input type="date" id="scheduleStartDate">
         </div>
@@ -608,6 +616,8 @@
     permutationPreview: document.getElementById('permutationPreview'),
     includeHistoryChk: document.getElementById('includeHistoryChk'),
     exportCoverage: document.getElementById('exportCoverage'),
+    dayNumberingMode: document.getElementById('dayNumberingMode'),
+    startDateField: document.getElementById('startDateField'),
   };
 
   // ---------------------------------------------------------------------
@@ -1101,11 +1111,9 @@
     els.previewPanel.style.display = 'block';
     els.resultsPanel.style.display = 'none';
 
-    if (state.dayNumbers.length && els.scheduleStartDate && !els.scheduleStartDate.value){
-      const today = new Date();
-      const pad = n => String(n).padStart(2, '0');
-      els.scheduleStartDate.value = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
-    }
+    // Deliberately NOT auto-filled with today's date. Doing that silently
+    // pinned day 1 to whenever the page happened to be opened, so sheets
+    // came out labelled with that day's date instead of day 1.
     if (state.dayNumbers.length && els.checkpointDay){
       els.checkpointDay.min = state.dayNumbers[0];
       els.checkpointDay.max = state.dayNumbers[state.dayNumbers.length - 1];
@@ -2507,6 +2515,10 @@
     '7116': 4954, '7610': 4981, '7613': 4984, '2604': 4933, '2605': 4935, '2702': 4956
   };
   const HISTORY_KEY = 'berth_cabin_plan_history_v1';
+  // Every exported row shows this in the Department column instead of the
+  // person's specific position. The positions themselves are still parsed
+  // and still drive the assignment rules — this only affects the printout.
+  const DEPARTMENT_LABEL = 'Restaurant';
   const FILL_ORANGE = 'FFF4B183';
   const FILL_BLUE = 'FFBDD7EE';
 
@@ -2604,9 +2616,12 @@
   // the day is ever surfaced — no month, no year.
   function dateForDay(day){
     const firstDay = state.dayNumbers.length ? state.dayNumbers[0] : 1;
-    const anchor = els.scheduleStartDate.value ? new Date(els.scheduleStartDate.value + 'T00:00:00') : null;
+    const useCalendar = els.dayNumberingMode && els.dayNumberingMode.value === 'calendar';
+    const anchor = (useCalendar && els.scheduleStartDate.value)
+      ? new Date(els.scheduleStartDate.value + 'T00:00:00')
+      : null;
     if (!anchor || isNaN(anchor.getTime())){
-      // No day-1 date set, so the schedule's own day number is all we have.
+      // Schedule day numbering: day 1 is labelled 01, full stop.
       return { dateISO: null, dayOfMonth: day, label: String(day).padStart(2, '0') };
     }
     const d = new Date(anchor);
@@ -2618,9 +2633,13 @@
     };
   }
 
+  // Compares what actually appears on the printed sheet — cabin and name.
+  // Position is deliberately excluded: it no longer prints, so a change in
+  // someone's recorded position shouldn't spawn a second sheet identical
+  // to the first.
   function snapshotsEqual(a, b){
     if (!a || !b || a.length !== b.length) return false;
-    return a.every((row, i) => row.roomId === b[i].roomId && row.name === b[i].name && row.position === b[i].position);
+    return a.every((row, i) => row.roomId === b[i].roomId && row.name === b[i].name);
   }
 
   function sanitizeSheetName(name){
@@ -2686,7 +2705,7 @@
       entry.rows.forEach((rowData, idx) => {
         const cabinIdx = Math.floor(idx / 2);
         const fillColor = cabinIdx % 2 === 0 ? FILL_ORANGE : FILL_BLUE;
-        const values = [rowData.roomId, TLF_MAP[rowData.roomId] || '', rowData.position, rowData.name];
+        const values = [rowData.roomId, TLF_MAP[rowData.roomId] || '', rowData.name ? DEPARTMENT_LABEL : '', rowData.name];
         ['B','C','D','E'].forEach((col, i) => {
           const cell = ws.getCell(`${col}${r}`);
           cell.value = values[i];
@@ -2779,6 +2798,18 @@
     }
   }
   els.scheduleStartDate.addEventListener('change', updatePermutationPreview);
+  els.dayNumberingMode.addEventListener('change', () => {
+    const useCalendar = els.dayNumberingMode.value === 'calendar';
+    els.startDateField.style.display = useCalendar ? '' : 'none';
+    if (useCalendar && !els.scheduleStartDate.value){
+      // Only prompt for a date once the user has actually asked for
+      // calendar numbering — never guess one on their behalf.
+      const today = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      els.scheduleStartDate.value = `${today.getFullYear()}-${pad(today.getMonth()+1)}-${pad(today.getDate())}`;
+    }
+    updatePermutationPreview();
+  });
   els.planTitle.addEventListener('input', updatePermutationPreview);
   els.includeHistoryChk.addEventListener('change', updatePermutationPreview);
 
