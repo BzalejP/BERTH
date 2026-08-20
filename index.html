@@ -2519,6 +2519,9 @@
   // person's specific position. The positions themselves are still parsed
   // and still drive the assignment rules — this only affects the printout.
   const DEPARTMENT_LABEL = 'Restaurant';
+  // Page margins in inches. Kept tight so Excel has to shrink the table
+  // as little as possible to land it on one A4 page.
+  const PRINT_MARGIN = 0.2;
   const FILL_ORANGE = 'FFF4B183';
   const FILL_BLUE = 'FFBDD7EE';
 
@@ -2751,6 +2754,26 @@
       cell.numFmt = '0';
       cell.border = { left: MEDIUM, right: MEDIUM, top: MEDIUM, bottom: MEDIUM };
       ws.getRow(r).height = 36;
+
+      // Print setup — squeeze the whole plan onto a single A4 sheet.
+      // fitToWidth/fitToHeight of 1 tells Excel to scale the printout
+      // until it fits one page each way; column A is left out of the
+      // print area since it's only a spacer.
+      ws.pageSetup = {
+        paperSize: 9,            // 9 = A4
+        orientation: 'portrait',
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: 1,
+        horizontalCentered: true,
+        verticalCentered: true,
+        margins: {
+          left: PRINT_MARGIN, right: PRINT_MARGIN,
+          top: PRINT_MARGIN, bottom: PRINT_MARGIN,
+          header: 0, footer: 0
+        },
+        printArea: `B2:E${r}`
+      };
     });
 
     return wb;
