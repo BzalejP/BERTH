@@ -2553,12 +2553,35 @@
     const sortedBoundaries = [...boundaries].filter(d => d >= firstDay && d <= lastDay).sort((a,b) => a - b);
 
     const permutations = [];
+
+    // Day 1 always gets a sheet, unconditionally — it's the baseline the
+    // whole month is read against, whether or not anything changes on it,
+    // and even if the cabins happen to be empty that day.
+    const firstRows = computeSnapshot(firstDay);
+    const firstInfo = dateForDay(firstDay);
+    permutations.push({
+      day: firstDay,
+      dateISO: firstInfo.dateISO,
+      dayOfMonth: firstInfo.dayOfMonth,
+      sheetLabel: firstInfo.label,
+      rows: firstRows,
+    });
+
+    // Every later boundary earns a sheet only if the lineup actually
+    // differs from the sheet currently in force.
     sortedBoundaries.forEach(day => {
+      if (day === firstDay) return; // already seeded above
       const rows = computeSnapshot(day);
       const prev = permutations[permutations.length - 1];
-      if (prev && snapshotsEqual(prev.rows, rows)) return; // no real change here, skip
-      const { dateISO, label } = dateForDay(day);
-      permutations.push({ day, dateISO, sheetLabel: label, rows });
+      if (snapshotsEqual(prev.rows, rows)) return; // nothing really changed
+      const info = dateForDay(day);
+      permutations.push({
+        day,
+        dateISO: info.dateISO,
+        dayOfMonth: info.dayOfMonth,
+        sheetLabel: info.label,
+        rows,
+      });
     });
 
     // Each sheet stays valid until the day before the next change — so the
@@ -2567,8 +2590,9 @@
     permutations.forEach((perm, i) => {
       const next = permutations[i + 1];
       perm.endDay = next ? next.day - 1 : lastDay;
-      perm.endDateISO = dateForDay(perm.endDay).dateISO;
-      perm.endLabel = dateForDay(perm.endDay).label;
+      const endInfo = dateForDay(perm.endDay);
+      perm.endDateISO = endInfo.dateISO;
+      perm.endLabel = endInfo.label;
     });
 
     return permutations;
@@ -2576,18 +2600,21 @@
 
   // Day numbers in the schedule are just column headers (1, 2, 3…). This
   // maps one onto a real calendar date using the "day 1" date the user set,
-  // and falls back to a plain "Day-N" label if they haven't set one.
+  // so the sheet can be labelled with the calendar day of the month. Only
+  // the day is ever surfaced — no month, no year.
   function dateForDay(day){
     const firstDay = state.dayNumbers.length ? state.dayNumbers[0] : 1;
     const anchor = els.scheduleStartDate.value ? new Date(els.scheduleStartDate.value + 'T00:00:00') : null;
     if (!anchor || isNaN(anchor.getTime())){
-      return { dateISO: new Date().toISOString(), label: `Day-${day}` };
+      // No day-1 date set, so the schedule's own day number is all we have.
+      return { dateISO: null, dayOfMonth: day, label: String(day).padStart(2, '0') };
     }
     const d = new Date(anchor);
     d.setDate(d.getDate() + (day - firstDay));
     return {
       dateISO: d.toISOString(),
-      label: d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-')
+      dayOfMonth: d.getDate(),
+      label: String(d.getDate()).padStart(2, '0')
     };
   }
 
@@ -2697,10 +2724,12 @@
 
       ws.mergeCells(`B${r}:E${r}`);
       cell = ws.getCell(`B${r}`);
-      cell.value = new Date(entry.dateISO);
+      // Day only — deliberately a plain number, not a date value, so no
+      // month or year can surface through cell formatting or a copy-paste.
+      cell.value = entry.dayOfMonth != null ? entry.dayOfMonth : entry.day;
       cell.font = { name: 'Calibri', bold: true, size: 25 };
       cell.alignment = { horizontal: 'center', vertical: 'top' };
-      cell.numFmt = 'mm-dd-yy';
+      cell.numFmt = '0';
       cell.border = { left: MEDIUM, right: MEDIUM, top: MEDIUM, bottom: MEDIUM };
       ws.getRow(r).height = 36;
     });
@@ -2723,10 +2752,10 @@
 
     const firstDay = state.dayNumbers[0];
     const lastDay = state.dayNumbers[state.dayNumbers.length - 1];
-    const lines = perms.map(p => {
+    const lines = perms.map((p, i) => {
       const span = p.day === p.endDay ? `day ${p.day}` : `days ${p.day}–${p.endDay}`;
-      const dates = p.sheetLabel === p.endLabel ? p.sheetLabel : `${p.sheetLabel} → ${p.endLabel}`;
-      return `  ${p.sheetName || p.sheetLabel}   covers ${span}   (${dates})`;
+      const tag = i === 0 ? '  (baseline)' : '';
+      return `  Sheet "${p.sheetLabel}"   covers ${span}${tag}`;
     });
     els.exportCoverage.textContent =
       `${perms.length} sheet${perms.length === 1 ? '' : 's'}, covering day ${firstDay} to day ${lastDay} with no gaps:\n` +
@@ -2746,7 +2775,7 @@
     } else {
       els.exportCoverage.classList.remove('warn');
       els.permutationPreview.textContent =
-        `Each sheet stays in force until the next one takes over, so together they account for every day from ${firstDay} to ${lastDay}.`;
+        `Day ${firstDay} always gets its own sheet as the baseline; after that a new sheet appears only where the lineup actually changes. Each stays in force until the next one takes over, so together they account for every day from ${firstDay} to ${lastDay}.`;
     }
   }
   els.scheduleStartDate.addEventListener('change', updatePermutationPreview);
@@ -2769,6 +2798,7 @@
       title,
       dateISO: perm.dateISO,
       day: perm.day,
+      dayOfMonth: perm.dayOfMonth,
       endDay: perm.endDay,
       endDateISO: perm.endDateISO,
       rows: perm.rows,
@@ -2786,6 +2816,7 @@
           title: h.title,
           dateISO: h.dateISO,
           day: h.day,
+          dayOfMonth: h.dayOfMonth != null ? h.dayOfMonth : h.day,
           endDay: h.endDay != null ? h.endDay : h.day,
           endDateISO: h.endDateISO || h.dateISO,
           rows: h.rows,
@@ -2794,12 +2825,8 @@
       });
     }
 
-    // Chronological, so the workbook reads front to back as the month runs.
-    entries.sort((a, b) => {
-      const ta = new Date(a.dateISO).getTime(), tb = new Date(b.dateISO).getTime();
-      if (ta !== tb) return ta - tb;
-      return a.day - b.day;
-    });
+    // Schedule day order, so the workbook reads front to back as the month runs.
+    entries.sort((a, b) => a.day - b.day);
 
     const usedNames = [];
     entries.forEach(entry => {
@@ -2812,7 +2839,8 @@
     const history = loadPlanHistory().filter(h => !current.some(c => c.day === h.day));
     current.forEach(c => history.push({
       sheetName: c.sheetName, title: c.title, dateISO: c.dateISO,
-      day: c.day, endDay: c.endDay, endDateISO: c.endDateISO, rows: c.rows,
+      day: c.day, dayOfMonth: c.dayOfMonth, endDay: c.endDay,
+      endDateISO: c.endDateISO, rows: c.rows,
     }));
     history.sort((a, b) => a.day - b.day);
     savePlanHistory(history);
